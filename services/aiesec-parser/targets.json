@@ -1,0 +1,33 @@
+{
+  "countries": {
+    "Tunisia": 1559,
+    "Egypt": 1609,
+    "India": 1585,
+    "Sri Lanka": 1623,
+    "Vietnam": 504,
+    "Azerbaijan": 539,
+    "Serbia": 1547,
+    "Morocco": 1552,
+    "Bahrain": 518,
+    "Indonesia": 1539,
+    "Armenia": 1541,
+    "Mexico": 1589,
+    "Kazakhstan": 494
+  },
+  "turkey": {
+    "mc_id": 1622,
+    "cities": {
+      "Adana": 941,
+      "Sakarya": 2441,
+      "Konya": 2452,
+      "Kütahya": 2848,
+      "Denizli": 527
+    }
+  },
+  "base_filters": {
+    "programmes": [8, 9],
+    "status": "open"
+  },
+  "only_with_openings": true,
+  "exclude_fields": []
+}
