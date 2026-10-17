@@ -31,7 +31,11 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      AIESEC_TOKEN: ${AIESEC_TOKEN:?задайте AIESEC_TOKEN в .env}
+      AIESEC_REFRESH_TOKEN: ${AIESEC_REFRESH_TOKEN:-}
+      AIESEC_CLIENT_ID: ${AIESEC_CLIENT_ID:-}
+      AIESEC_CLIENT_SECRET: ${AIESEC_CLIENT_SECRET:-}
+      AIESEC_AUTH_URL: ${AIESEC_AUTH_URL:-https://auth.aiesec.org/oauth/token}
+      AIESEC_AUTH_ORIGIN: ${AIESEC_AUTH_ORIGIN:-https://aiesec.org}
       API_KEY: ${PARSER_API_KEY:?задайте PARSER_API_KEY в .env}
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-platform}:${POSTGRES_PASSWORD}@postgres:5432/${PARSER_DB:-parser}
       TARGETS_FILE: /srv/targets.json

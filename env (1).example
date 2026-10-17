@@ -1,0 +1,27 @@
+# --- общее ---
+POSTGRES_USER=platform
+POSTGRES_PASSWORD=
+PARSER_DB=parser
+
+# --- aiesec-parser ---
+# --- доступ к AIESEC: нужен ЛИБО вариант А, ЛИБО Б (Б предпочтительнее) ---
+# А) готовый access_token. Живёт ~2 часа, сам не обновится.
+AIESEC_TOKEN=
+# Б) автообновление: refresh_token + данные OAuth-приложения. Токен обновляется сам, раньше срока.
+#    ВАЖНО: refresh_token одноразовый (при каждом обновлении AIESEC выдаёт новый). Новая пара хранится в БД
+#    сервиса, поэтому значение здесь нужно только для первого запуска. Если потеряете БД (docker compose down -v) —
+#    возьмите свежий refresh_token и передайте его через PUT /admin/token.
+AIESEC_REFRESH_TOKEN=
+AIESEC_CLIENT_ID=
+AIESEC_CLIENT_SECRET=
+AIESEC_AUTH_URL=https://auth.aiesec.org/oauth/token
+AIESEC_AUTH_ORIGIN=https://aiesec.org
+PARSER_TOKEN_REFRESH_MARGIN_SEC=600
+# Ключ доступа к ручкам парсера (заголовок X-API-Key). openssl rand -hex 24
+PARSER_API_KEY=
+PARSER_PORT=8001
+PARSER_REQUEST_DELAY_SEC=0.7
+PARSER_INCREMENTAL_INTERVAL_MINUTES=360
+PARSER_RECONCILE_INTERVAL_HOURS=24
+PARSER_INCREMENTAL_DATE_FILTER=created
+PARSER_SCHEDULER_ENABLED=true

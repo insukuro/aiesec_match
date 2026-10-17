@@ -9,10 +9,11 @@ from typing import Literal
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from .auth import OAuthRefresher
 from .client import AiesecClient, AiesecError, AuthError, NotSupported
 from .config import Settings, Targets
 from .models import Opportunity, SyncRun, make_session_factory, utcnow
@@ -24,10 +25,15 @@ log = logging.getLogger("aiesec.app")
 settings = Settings()
 targets = Targets.load(settings.targets_file)
 SessionLocal = make_session_factory(settings.database_url)
+refresher = (OAuthRefresher(settings.aiesec_auth_url, settings.aiesec_client_id,
+                            settings.aiesec_client_secret, origin=settings.aiesec_auth_origin)
+             if settings.auto_refresh else None)
 client = AiesecClient(
-    token=settings.aiesec_token, url=settings.graphql_url, per_page=settings.per_page,
+    token=settings.aiesec_token or "", url=settings.graphql_url, per_page=settings.per_page,
     max_pages=settings.max_pages, delay=settings.request_delay_sec,
     exclude_fields=targets.exclude_fields,
+    refresher=refresher, refresh_token=settings.aiesec_refresh_token,
+    refresh_margin=settings.token_refresh_margin_sec,
 )
 service = SyncService(client, settings, targets, SessionLocal)
 scheduler = BackgroundScheduler(timezone="UTC")
@@ -41,19 +47,50 @@ def mask_token(t: str) -> str:
     return f"…{t[-4:]} (длина {len(t)})" if len(t) > 8 else "…"
 
 
+def persist_tokens(c) -> None:
+    """Сохраняет пару токенов одной транзакцией. Вызывается клиентом после каждого обновления:
+    refresh_token одноразовый, и без записи в БД цепочка не переживёт рестарт."""
+    service.set_states({
+        "aiesec_token": c.token or "",
+        "aiesec_refresh_token": c.refresh_token or "",
+        "aiesec_token_expires_at": c.expires_at.isoformat() if c.expires_at else "",
+        "aiesec_token_updated_at": utcnow().isoformat(),
+    })
+
+
+client.on_tokens = persist_tokens
+
+
 def init_token() -> None:
-    """Какой токен использовать на старте.
-    .env изменился с прошлого запуска -> побеждает .env (а сохранённый через API токен сбрасывается);
-    иначе берём токен, сохранённый через PUT /admin/token, если он есть."""
-    env_sha = _sha(settings.aiesec_token)
+    """Какие токены использовать на старте.
+    .env изменился с прошлого запуска (или это первый запуск) -> источник истины .env, сохранённое сбрасывается.
+    Иначе берём то, что лежит в БД: оно новее, ведь refresh_token из .env после первого обновления уже недействителен."""
+    env_sha = _sha(f"{settings.aiesec_token or ''}|{settings.aiesec_refresh_token or ''}")
     if service.get_state("token_env_sha") != env_sha:
-        service.set_state("token_env_sha", env_sha)
-        service.set_state("aiesec_token", "")
-        return
-    stored = service.get_state("aiesec_token")
-    if stored:
-        client.set_token(stored, source="api")
-        log.info("используется токен, сохранённый через API (%s)", mask_token(stored))
+        service.set_states({"token_env_sha": env_sha, "aiesec_token": "", "aiesec_refresh_token": "",
+                            "aiesec_token_expires_at": ""})
+    else:
+        access = service.get_state("aiesec_token") or ""
+        refresh = service.get_state("aiesec_refresh_token") or ""
+        exp = service.get_state("aiesec_token_expires_at") or ""
+        if access or refresh:
+            client.set_token(access or client.token, source="api", refresh_token=refresh or None,
+                             expires_at=datetime.fromisoformat(exp) if exp else None)
+            log.info("используются токены, сохранённые в БД (%s)", mask_token(client.token))
+    try:  # срок жизни неизвестен или токена нет — обновляемся сразу, чтобы дальше знать точное время
+        client.ensure_fresh(refresh_if_unknown=True)
+    except AiesecError as e:
+        log.error("при старте не удалось обновить токен: %s", e)
+
+
+def token_keepalive() -> None:
+    """Раз в 15 минут: освежаем токен заранее, даже если синк сейчас не идёт."""
+    if client.auth_ok is False:
+        return  # refresh_token мёртв — ждём PUT /admin/token, не долбим сервер авторизации
+    try:
+        client.ensure_fresh()
+    except AiesecError as e:
+        log.error("keepalive: %s", e)
 
 
 @asynccontextmanager
@@ -66,6 +103,8 @@ async def lifespan(_: FastAPI):
         scheduler.add_job(service.run_now, "interval", args=["reconcile"],
                           hours=settings.reconcile_interval_hours, id="reconcile", **kw)
         scheduler.add_job(service.expire_by_deadline, "interval", hours=1, id="expire", **kw)
+        if client.can_refresh:
+            scheduler.add_job(token_keepalive, "interval", minutes=15, id="token_keepalive", **kw)
         if not service.has_bootstrapped():
             scheduler.add_job(service.run_now, args=["full"], id="bootstrap")  # первый запуск — сразу
         scheduler.start()
@@ -124,6 +163,7 @@ def list_opportunities(
     only_open: bool = True,
     closing_before: date | None = None,
     new_since: datetime | None = Query(None, description="Впервые увидели после (UTC)"),
+    updated_since: datetime | None = Query(None, description="Изменились/закрылись после (UTC): лента изменений для других сервисов. Используйте с only_open=false"),
     sort: Literal["first_seen_at", "applications_close_date", "date_opened", "updated_at"] = "first_seen_at",
     desc: bool = True,
     limit: int = Query(50, ge=1, le=500),
@@ -155,6 +195,8 @@ def list_opportunities(
         conds.append(Opportunity.applications_close_date <= closing_before)
     if new_since:
         conds.append(Opportunity.first_seen_at >= new_since)
+    if updated_since:
+        conds.append(Opportunity.updated_at >= updated_since)
 
     col = getattr(Opportunity, sort)
     total = db.scalar(select(func.count()).select_from(Opportunity).where(*conds))
@@ -256,16 +298,32 @@ def schema_filters():
 
 # ---------------- токен AIESEC ----------------
 class TokenIn(BaseModel):
-    token: str = Field(min_length=10, max_length=2000)
-    verify: bool = Field(True, description="Проверить токен запросом к AIESEC до применения")
+    token: str | None = Field(None, min_length=10, max_length=2000,
+                              description="Готовый access_token (живёт ~2 ч; без refresh-настроек сам не обновится)")
+    refresh_token: str | None = Field(None, min_length=10, max_length=2000,
+                                      description="refresh_token: меняется на access_token, дальше сервис обновляет токен сам")
+    verify: bool = Field(True, description="Для token: проверить запросом к AIESEC до применения")
     run_sync: bool = Field(True, description="Если синк падал из-за токена (или первого синка ещё не было) — запустить сразу")
+
+    @model_validator(mode="after")
+    def _exactly_one(self):
+        if bool(self.token) == bool(self.refresh_token):
+            raise ValueError("Передайте ровно одно из полей: token или refresh_token")
+        return self
+
+
+def _clean(v: str) -> str:
+    return v.strip().strip("\"'").removeprefix("Bearer ").strip()
 
 
 def _token_status() -> dict:
+    left = client.seconds_left()
     return {
         "masked": mask_token(client.token),
-        "source": client.token_source,  # env | api
+        "source": client.token_source,  # env | api | refresh
         "auth": AUTH_LABEL[client.auth_ok],
+        "auto_refresh": client.can_refresh,
+        "expires_in_sec": int(left) if left is not None else None,
         "last_auth_error": client.auth_error,
         "checked_at": client.auth_checked_at,
         "updated_at": service.get_state("aiesec_token_updated_at"),
@@ -274,7 +332,7 @@ def _token_status() -> dict:
 
 @app.get("/admin/token", dependencies=Auth)
 def token_status():
-    """Состояние токена AIESEC. Само значение никогда не возвращается."""
+    """Состояние токена AIESEC. Сами значения никогда не возвращаются."""
     return _token_status()
 
 
@@ -288,30 +346,55 @@ def token_check():
     return {"valid": ok, "error": err, **_token_status()}
 
 
+@app.post("/admin/token/refresh", dependencies=Auth)
+def token_refresh_now():
+    """Принудительно обновить access_token через refresh_token (проверка, что автообновление работает)."""
+    if not client.can_refresh:
+        raise HTTPException(409, "Автообновление не настроено (нет refresh_token или client_id/secret)")
+    try:
+        client.refresh_after_401(client.token)  # тот же путь, что и при 401: безопасен при гонках
+    except AuthError as e:
+        raise HTTPException(422, str(e))
+    except AiesecError as e:
+        raise HTTPException(502, str(e))
+    return _token_status()
+
+
 @app.put("/admin/token", dependencies=Auth)
 def put_token(body: TokenIn, bg: BackgroundTasks):
-    """Заменить токен AIESEC без перезапуска. Новый токен сначала проверяется; при отказе остаётся старый.
-    Токен сохраняется в БД и переживает рестарт, пока вы не измените AIESEC_TOKEN в .env."""
-    new = body.token.strip().strip("\"'").removeprefix("Bearer ").strip()
-    if len(new) < 10:
-        raise HTTPException(422, "Токен слишком короткий после очистки")
-
-    verified = None
-    if body.verify:
-        try:
-            ok, err = client.check_token(new)
-        except AiesecError as e:
-            raise HTTPException(502, f"Не удалось проверить токен: {e}. Старый токен не менялся. "
-                                     f"Повторите позже или передайте verify=false.")
-        if not ok:
-            raise HTTPException(422, f"AIESEC отклонил новый токен, оставлен прежний. Ответ: {err}")
-        verified = True
-
+    """Заменить доступ к AIESEC без перезапуска.
+    refresh_token -> сразу обменивается на access_token; дальше сервис обновляет его сам (нужны CLIENT_ID/SECRET).
+    token -> применяется после проверки; при отказе AIESEC остаётся прежний.
+    Всё сохраняется в БД и переживает рестарт, пока вы не измените значения в .env."""
     was_failing = client.auth_ok is False
-    client.set_token(new, source="api", verified=verified)
-    service.set_state("aiesec_token", new)
-    service.set_state("aiesec_token_updated_at", utcnow().isoformat())
-    log.info("токен AIESEC заменён через API (%s), проверен=%s", mask_token(new), verified)
+    verified = None
+
+    if body.refresh_token:
+        if not client.refresher:
+            raise HTTPException(422, "Автообновление не настроено: задайте AIESEC_CLIENT_ID и AIESEC_CLIENT_SECRET")
+        try:
+            client.refresh_with(_clean(body.refresh_token))  # применяет и сохраняет (on_tokens)
+        except AuthError as e:
+            raise HTTPException(422, f"{e}")
+        except AiesecError as e:
+            raise HTTPException(502, f"Не удалось обменять refresh_token: {e}")
+        verified = True
+    else:
+        new = _clean(body.token)
+        if len(new) < 10:
+            raise HTTPException(422, "Токен слишком короткий после очистки")
+        if body.verify:
+            try:
+                ok, err = client.check_token(new)
+            except AiesecError as e:
+                raise HTTPException(502, f"Не удалось проверить токен: {e}. Старый токен не менялся. "
+                                         f"Повторите позже или передайте verify=false.")
+            if not ok:
+                raise HTTPException(422, f"AIESEC отклонил новый токен, оставлен прежний. Ответ: {err}")
+            verified = True
+        client.set_token(new, source="api", verified=verified)
+        persist_tokens(client)
+    log.info("доступ к AIESEC заменён через API (%s), проверен=%s", mask_token(client.token), verified)
 
     triggered = None
     if body.run_sync and (was_failing or not service.has_bootstrapped()):

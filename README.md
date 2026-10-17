@@ -15,14 +15,15 @@ curl -H "X-API-Key: $PARSER_API_KEY" localhost:8001/opportunities/stats
 ```
 aiesec_match
 ├─ .dockerignore
-├─ .env
-├─ .env.example
 ├─ Makefile
+├─ README.md
 ├─ docker-compose.dev.yml
 ├─ docker-compose.yml
 ├─ docs
 │  ├─ README.md
 │  └─ testing.md
+├─ env (1).example
+├─ htmlcov
 ├─ infra
 │  ├─ docker
 │  │  ├─ aiesec-parser.Dockerfile
@@ -34,10 +35,13 @@ aiesec_match
 │  └─ smoke.sh
 └─ services
    └─ aiesec-parser
+      ├─ .coveragerc
       ├─ app
       │  ├─ __init__.py
+      │  ├─ auth.py
       │  ├─ client.py
       │  ├─ config.py
+      │  ├─ errors.py
       │  ├─ main.py
       │  ├─ models.py
       │  ├─ normalize.py
@@ -50,6 +54,7 @@ aiesec_match
          ├─ __init__.py
          ├─ conftest.py
          ├─ test_api.py
+         ├─ test_auth.py
          ├─ test_live.py
          ├─ test_normalize.py
          └─ test_sync.py

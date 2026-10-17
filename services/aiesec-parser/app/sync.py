@@ -91,6 +91,13 @@ class SyncService:
             s.merge(SyncState(key=key, value=value))
             s.commit()
 
+    def set_states(self, items: dict[str, str]) -> None:
+        """Несколько ключей одной транзакцией (пара access/refresh токенов не должна записаться наполовину)."""
+        with self.Session() as s:
+            for k, v in items.items():
+                s.merge(SyncState(key=k, value=v))
+            s.commit()
+
     def has_bootstrapped(self) -> bool:
         return self.get_state("last_full_at") is not None
 

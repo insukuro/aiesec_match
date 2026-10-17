@@ -12,6 +12,9 @@ from typing import Any, Callable, Iterator
 
 import requests
 
+from .auth import OAuthRefresher, utcnow
+from .errors import AiesecError, AuthError, GQLError, NotSupported  # noqa: F401 (реэкспорт)
+
 log = logging.getLogger("aiesec.client")
 
 SEARCH_FIELDS = ["searchOpportunities", "opportunities"]
@@ -34,24 +37,6 @@ SLIM_FIELDS = ["id", "status", "current_status", "available_openings", "applican
                "accepted_count", "applications_close_date"]
 
 TYPE_FRAG = "fragment T on __Type{kind name ofType{kind name ofType{kind name ofType{kind name}}}}"
-
-
-class AiesecError(RuntimeError):
-    pass
-
-
-class AuthError(AiesecError):
-    pass
-
-
-class NotSupported(AiesecError):
-    pass
-
-
-class GQLError(AiesecError):
-    def __init__(self, errors):
-        super().__init__(json.dumps(errors, ensure_ascii=False)[:1500])
-        self.errors = errors
 
 
 def type_str(t: dict) -> str:
@@ -84,8 +69,10 @@ class SearchSchema:
 class AiesecClient:
     def __init__(self, token: str, url: str, per_page: int = 200, max_pages: int = 200,
                  delay: float = 0.7, timeout: int = 60, max_retries: int = 4,
-                 exclude_fields: list[str] | None = None):
-        self.token = token.strip()
+                 exclude_fields: list[str] | None = None,
+                 refresher: OAuthRefresher | None = None, refresh_token: str | None = None,
+                 refresh_margin: int = 600):
+        self.token = (token or "").strip()
         self.url = url
         self.per_page = per_page
         self.max_pages = max_pages
@@ -99,6 +86,14 @@ class AiesecClient:
         self.auth_ok: bool | None = None
         self.auth_error: str | None = None
         self.auth_checked_at: datetime | None = None
+
+        # автообновление: refresh_token -> access_token
+        self.refresher = refresher
+        self.refresh_token: str | None = (refresh_token or "").strip() or None
+        self.expires_at: datetime | None = None  # naive UTC; None — срок жизни неизвестен
+        self.refresh_margin = refresh_margin
+        self.on_tokens: Callable[["AiesecClient"], None] | None = None  # сохранить токены (вызывается до их использования)
+        self._refresh_lock = threading.RLock()
 
         self._http = requests.Session()
         self._throttle_lock = threading.Lock()
@@ -118,19 +113,28 @@ class AiesecClient:
 
     def gql(self, query: str, variables: dict | None = None) -> dict:
         last_err: Exception | None = None
+        refreshed_after_401 = False
+        self.ensure_fresh()  # проактивно: до истечения access_token
         for attempt in range(self.max_retries + 1):
             self._throttle()
+            used_token = self.token
             try:
                 r = self._http.post(
                     self.url,
-                    params={"access_token": self.token},
-                    headers={"Authorization": self.token, "Content-Type": "application/json"},
+                    params={"access_token": used_token},
+                    headers={"Authorization": used_token, "Content-Type": "application/json"},
                     json={"query": query, "variables": variables or {}},
                     timeout=self.timeout,
                 )
             except requests.RequestException as e:
                 last_err = e
                 self._backoff(attempt)
+                continue
+            if r.status_code == 401 and not refreshed_after_401 and self.can_refresh:
+                # реактивно: токен умер раньше срока (отозван, рассинхрон часов) — один раз освежаем и повторяем
+                refreshed_after_401 = True
+                log.warning("401 от AIESEC — пробую обновить токен через refresh_token")
+                self.refresh_after_401(used_token)  # AuthError, если и refresh_token мёртв
                 continue
             if r.status_code in (401, 403):
                 msg = f"{r.status_code}: токен не принят. {r.text[:300]}"
@@ -163,13 +167,87 @@ class AiesecClient:
         self.auth_error = None if ok else error
         self.auth_checked_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
-    def set_token(self, token: str, source: str = "api", verified: bool | None = None) -> None:
-        """Подмена токена на лету. Кэши схемы не трогаем: схема от токена не зависит."""
+    @property
+    def can_refresh(self) -> bool:
+        return bool(self.refresher and self.refresh_token)
+
+    def seconds_left(self) -> float | None:
+        if not self.expires_at:
+            return None
+        return (self.expires_at - utcnow()).total_seconds()
+
+    def set_token(self, token: str, source: str = "api", verified: bool | None = None,
+                  refresh_token: str | None = None, expires_at: datetime | None = None) -> None:
+        """Подмена токена на лету. Кэши схемы не трогаем: схема от токена не зависит.
+        refresh_token=None — оставить прежний; expires_at=None — срок неизвестен."""
         self.token = token.strip()
+        if refresh_token is not None:
+            self.refresh_token = refresh_token.strip() or None
+        self.expires_at = expires_at
         self.token_source = source
         self.auth_ok = verified
         self.auth_error = None
         self.auth_checked_at = None
+
+    def _needs_refresh(self, refresh_if_unknown: bool) -> bool:
+        left = self.seconds_left()
+        if not self.token:
+            return True
+        if left is None:
+            return refresh_if_unknown
+        return left < self.refresh_margin
+
+    def ensure_fresh(self, refresh_if_unknown: bool = False) -> None:
+        """Освежить токен, если он скоро истечёт. Временные сбои глотаем (токен мог ещё быть живым),
+        AuthError (мёртвый refresh_token) пробрасываем."""
+        if not self.can_refresh:
+            return
+        with self._refresh_lock:
+            if self._needs_refresh(refresh_if_unknown):
+                self._do_refresh(proactive=True)
+
+    def refresh_after_401(self, stale_token: str) -> None:
+        """Освежить токен после 401. Если другой поток уже успел — второй раз refresh_token НЕ тратим
+        (он одноразовый, повторное использование сломало бы цепочку)."""
+        with self._refresh_lock:
+            if self.token != stale_token:
+                return
+            self._do_refresh(proactive=False)
+
+    def refresh_with(self, refresh_token: str):
+        """Обмен произвольного refresh_token (ручной ввод через API). Применяет и сохраняет результат."""
+        if not self.refresher:
+            raise AuthError("не настроены AIESEC_CLIENT_ID / AIESEC_CLIENT_SECRET")
+        with self._refresh_lock:
+            ts = self.refresher.refresh(refresh_token)
+            self._apply(ts, fallback_refresh=refresh_token)
+            return ts
+
+    def _do_refresh(self, proactive: bool) -> None:
+        try:
+            ts = self.refresher.refresh(self.refresh_token)
+        except AuthError as e:
+            self._mark_auth(False, str(e))
+            raise
+        except AiesecError as e:
+            if proactive:
+                log.warning("не удалось обновить токен заранее (%s), продолжаю со старым", e)
+                return
+            raise
+        self._apply(ts, fallback_refresh=self.refresh_token)
+
+    def _apply(self, ts, fallback_refresh: str | None) -> None:
+        self.token = ts.access_token
+        self.refresh_token = ts.refresh_token or fallback_refresh
+        self.expires_at = ts.expires_at
+        self.token_source = "refresh"
+        self._mark_auth(True)
+        log.info("токен AIESEC обновлён, действует ещё ~%s с", int(self.seconds_left() or 0))
+        if self.on_tokens:
+            try:  # потеря новой пары = потеря цепочки refresh_token после рестарта, поэтому шумим громко
+                self.on_tokens(self)
+            except Exception:  # noqa: BLE001
+                log.exception("КРИТИЧНО: не удалось сохранить новые токены, после рестарта потребуется новый refresh_token")
 
     def check_token(self, token: str | None = None) -> tuple[bool, str | None]:
         """Один дешёвый запрос. (True, None) / (False, ответ AIESEC). AiesecError — если AIESEC недоступен.

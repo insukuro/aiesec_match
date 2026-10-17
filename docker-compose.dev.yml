@@ -13,6 +13,7 @@ services:
     environment:
       SCHEDULER_ENABLED: "false"   # в dev не гоняем фоновые задачи
     volumes:
+      - ./.env:/srv/.env:ro
       - ./services/aiesec-parser/app:/srv/app:ro
       - ./services/aiesec-parser/targets.json:/srv/targets.json:ro
       - ./services/aiesec-parser/tests:/srv/tests:ro
@@ -33,6 +34,7 @@ services:
       DATABASE_URL: sqlite:////tmp/test.db
     volumes:
       - ./htmlcov:/srv/htmlcov
+      - ./.env:/srv/.env:ro
       - ./services/aiesec-parser/app:/srv/app:ro
       - ./services/aiesec-parser/tests:/srv/tests:ro
       - ./services/aiesec-parser/pytest.ini:/srv/pytest.ini:ro

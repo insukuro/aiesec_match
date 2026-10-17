@@ -3,13 +3,24 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    aiesec_token: str  # обязателен, дефолта нет намеренно
+    # --- доступ к AIESEC ---
+    # Достаточно ЛЮБОГО из двух вариантов:
+    #   а) AIESEC_TOKEN — готовый access_token (живёт ~2 ч, сам не обновится, если нет refresh-настроек ниже);
+    #   б) AIESEC_REFRESH_TOKEN + AIESEC_CLIENT_ID + AIESEC_CLIENT_SECRET — автообновление.
+    aiesec_token: str | None = None
+    aiesec_refresh_token: str | None = None
+    aiesec_client_id: str | None = None
+    aiesec_client_secret: str | None = None
+    aiesec_auth_url: str = "https://auth.aiesec.org/oauth/token"
+    aiesec_auth_origin: str | None = "https://aiesec.org"
+    token_refresh_margin_sec: int = 600  # обновлять, когда до истечения осталось меньше
     graphql_url: str = "https://gis-api.aiesec.org/graphql"
     database_url: str = "sqlite:///./data/parser.db"
     targets_file: str = "targets.json"
@@ -32,6 +43,24 @@ class Settings(BaseSettings):
     # предохранители
     gap_fill_max: int = 200  # сколько новых id догружать по одному, дальше — полный проход
     max_close_ratio: float = 0.5  # не закрывать >50% открытых разом (признак кривой выдачи)
+
+    @field_validator("aiesec_token", "aiesec_refresh_token", "aiesec_client_id", "aiesec_client_secret",
+                     "aiesec_auth_origin", mode="before")
+    @classmethod
+    def _empty_to_none(cls, v):
+        return (v.strip() or None) if isinstance(v, str) else v
+
+    @model_validator(mode="after")
+    def _check_credentials(self):
+        if not (self.aiesec_token or self.aiesec_refresh_token):
+            raise ValueError("Задайте AIESEC_TOKEN или AIESEC_REFRESH_TOKEN (+ AIESEC_CLIENT_ID/SECRET)")
+        if self.aiesec_refresh_token and not (self.aiesec_client_id and self.aiesec_client_secret):
+            raise ValueError("Для AIESEC_REFRESH_TOKEN нужны AIESEC_CLIENT_ID и AIESEC_CLIENT_SECRET")
+        return self
+
+    @property
+    def auto_refresh(self) -> bool:
+        return bool(self.aiesec_client_id and self.aiesec_client_secret)
 
 
 @dataclass
