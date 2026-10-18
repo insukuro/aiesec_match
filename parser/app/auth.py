@@ -1,9 +1,4 @@
-"""Обмен refresh_token -> access_token (OAuth2, auth.aiesec.org).
-
-Важно: AIESEC ротирует refresh_token — в каждом ответе приходит НОВЫЙ, а старый, судя по всему,
-перестаёт работать. Поэтому новый refresh_token нужно сохранить до того, как мы начнём пользоваться
-результатом. Это делает AiesecClient через колбэк on_tokens (запись в БД).
-"""
+"""Обмен refresh_token -> access_token (OAuth2, auth.aiesec.org)."""
 from __future__ import annotations
 
 import logging
@@ -21,7 +16,7 @@ log = logging.getLogger("aiesec.auth")
 class TokenSet:
     access_token: str
     refresh_token: str | None
-    expires_at: datetime | None  # naive UTC
+    expires_at: datetime | None
     scope: str | None = None
 
 
@@ -46,7 +41,7 @@ class OAuthRefresher:
         try:
             r = self._http.post(
                 self.url,
-                auth=(self.client_id, self.client_secret),  # HTTP Basic, как curl -u
+                auth=(self.client_id, self.client_secret),
                 data={"grant_type": "refresh_token", "refresh_token": refresh_token},
                 headers=headers,
                 timeout=self.timeout,
@@ -55,7 +50,6 @@ class OAuthRefresher:
             raise AiesecError(f"сервер авторизации AIESEC недоступен: {e}") from e
 
         if r.status_code in (400, 401, 403):
-            # invalid_grant: refresh_token протух, уже использован или отозван
             raise AuthError(f"refresh_token отклонён ({r.status_code}): {r.text[:300]}. "
                             f"Нужен новый refresh_token: PUT /admin/token")
         if r.status_code != 200:
@@ -77,7 +71,7 @@ class OAuthRefresher:
             return None
         now = utcnow()
         local = now + timedelta(seconds=ttl)
-        try:  # created_at от сервера точнее, но защищаемся от рассинхрона часов
+        try:
             by_server = datetime.fromtimestamp(int(j["created_at"]) + ttl, timezone.utc).replace(tzinfo=None)
         except (KeyError, TypeError, ValueError, OverflowError):
             return local

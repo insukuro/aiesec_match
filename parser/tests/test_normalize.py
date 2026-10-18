@@ -31,3 +31,14 @@ def test_garbage_values_become_none():
 def test_name_fallbacks_for_programme():
     raw = {"id": "1", "programme": {"id": "9", "short_name": "GTe"}}
     assert normalize(raw)["programme_name"] == "GTe"
+
+def test_remote_updated_at_is_datetime_with_z():
+    from datetime import datetime
+    d = normalize({"id": "1", "updated_at": "2026-10-15T08:08:11Z"})
+    assert d["remote_updated_at"] == datetime(2026, 10, 15, 8, 8, 11)
+    assert d["remote_updated_at"].tzinfo is None
+
+
+def test_remote_updated_at_garbage_becomes_none():
+    d = normalize({"id": "1", "updated_at": "not-a-date"})
+    assert d["remote_updated_at"] is None

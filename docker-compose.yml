@@ -1,6 +1,36 @@
 name: aiesec-match
 
 services:
+  db-init:
+    image: postgres:16-alpine
+    container_name: aiesec-db-init
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: ${POSTGRES_USER:-platform}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env}
+      PARSER_DB: ${PARSER_DB:-parser}
+      PARSER_DB_PASSWORD: ${PARSER_DB_PASSWORD:-parser}
+      BACKEND_DB_PASSWORD: ${BACKEND_DB_PASSWORD:-backend}
+    volumes:
+      - ./infra/postgres:/bootstrap:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        echo "== bootstrap roles =="
+        psql -v ON_ERROR_STOP=1 \
+             -v parser_pw="$$PARSER_DB_PASSWORD" \
+             -v backend_pw="$$BACKEND_DB_PASSWORD" \
+             -v parser_db="$$PARSER_DB" \
+             -d postgres -f /bootstrap/bootstrap.sql
+        echo "== done =="
+    networks: [backend]
+
   postgres:
     image: postgres:16-alpine
     container_name: aiesec-postgres
@@ -10,7 +40,10 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env}
       POSTGRES_DB: postgres
       PARSER_DB: ${PARSER_DB:-parser}
+      PARSER_DB_PASSWORD: ${PARSER_DB_PASSWORD:-parser}
+      BACKEND_DB_PASSWORD: ${BACKEND_DB_PASSWORD:-backend}
     volumes:
+      # ВАЖНО: том НЕ удаляется при docker compose down — только при `down -v`.
       - pgdata:/var/lib/postgresql/data
       - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
@@ -20,24 +53,28 @@ services:
       retries: 10
     networks: [backend]
 
-  aiesec-parser:
+  parser:
     build:
       context: .
-      dockerfile: infra/docker/aiesec-parser.Dockerfile
+      dockerfile: infra/docker/parser.Dockerfile
     image: aiesec-parser:local
     container_name: aiesec-parser
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
     environment:
+      AIESEC_TOKEN: ${AIESEC_TOKEN:-}
       AIESEC_REFRESH_TOKEN: ${AIESEC_REFRESH_TOKEN:-}
       AIESEC_CLIENT_ID: ${AIESEC_CLIENT_ID:-}
       AIESEC_CLIENT_SECRET: ${AIESEC_CLIENT_SECRET:-}
       AIESEC_AUTH_URL: ${AIESEC_AUTH_URL:-https://auth.aiesec.org/oauth/token}
       AIESEC_AUTH_ORIGIN: ${AIESEC_AUTH_ORIGIN:-https://aiesec.org}
-      API_KEY: ${PARSER_API_KEY:?задайте PARSER_API_KEY в .env}
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-platform}:${POSTGRES_PASSWORD}@postgres:5432/${PARSER_DB:-parser}
+      ALLOW_NO_TOKEN: ${PARSER_ALLOW_NO_TOKEN:-false}
+      DATABASE_URL: postgresql+psycopg://parser_writer:${PARSER_DB_PASSWORD:-parser}@postgres:5432/${PARSER_DB:-parser}
+      DB_SCHEMA: raw
       TARGETS_FILE: /srv/targets.json
       REQUEST_DELAY_SEC: ${PARSER_REQUEST_DELAY_SEC:-0.7}
       INCREMENTAL_INTERVAL_MINUTES: ${PARSER_INCREMENTAL_INTERVAL_MINUTES:-360}
@@ -45,7 +82,7 @@ services:
       INCREMENTAL_DATE_FILTER: ${PARSER_INCREMENTAL_DATE_FILTER:-created}
       SCHEDULER_ENABLED: ${PARSER_SCHEDULER_ENABLED:-true}
     volumes:
-      - ./services/aiesec-parser/targets.json:/srv/targets.json:ro
+      - ./parser/targets.json:/srv/targets.json:ro
     ports:
       - "127.0.0.1:${PARSER_PORT:-8001}:8000"
     healthcheck:
@@ -57,7 +94,11 @@ services:
     networks: [backend]
 
 volumes:
+  # Именованный volume: данные переживают `docker compose down`.
+  # Удаляется только `docker compose down -v` (осознанно).
   pgdata:
+    name: aiesec-pgdata
 
 networks:
   backend:
+    name: aiesec-backend

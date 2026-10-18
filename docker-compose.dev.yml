@@ -1,50 +1,53 @@
-# Запуск: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
-# Или через Makefile: make dev-up
 name: aiesec-platform
 
 services:
-  aiesec-parser:
+  parser:
     build:
       context: .
-      dockerfile: infra/docker/aiesec-parser.dev.Dockerfile
+      dockerfile: infra/docker/parser.dev.Dockerfile
     image: aiesec-parser:dev
     container_name: aiesec-parser-dev
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--workers", "1"]
     environment:
-      SCHEDULER_ENABLED: "false"   # в dev не гоняем фоновые задачи
+      SCHEDULER_ENABLED: "false"
+      ALLOW_NO_TOKEN: "true"
     volumes:
       - ./.env:/srv/.env:ro
-      - ./services/aiesec-parser/app:/srv/app:ro
-      - ./services/aiesec-parser/targets.json:/srv/targets.json:ro
-      - ./services/aiesec-parser/tests:/srv/tests:ro
-      - ./services/aiesec-parser/pytest.ini:/srv/pytest.ini:ro
+      - ./parser/app:/srv/app:ro
+      - ./parser/targets.json:/srv/targets.json:ro
+      - ./parser/tests:/srv/tests:ro
+      - ./parser/pytest.ini:/srv/pytest.ini:ro
+      - ./parser/alembic.ini:/srv/alembic.ini:ro
+      - ./parser/migrations:/srv/migrations:ro
 
-  # Отдельный "раннер" тестов, который не висит постоянно.
-  # Запускается через `docker compose ... run --rm tests`
   tests:
     build:
       context: .
-      dockerfile: infra/docker/aiesec-parser.dev.Dockerfile
+      dockerfile: infra/docker/parser.dev.Dockerfile
     image: aiesec-parser:dev
     profiles: ["tools"]
     working_dir: /srv
     environment:
       SCHEDULER_ENABLED: "false"
-      AIESEC_TOKEN: ${AIESEC_TOKEN:-test-token}
+      ALLOW_NO_TOKEN: "true"
+      AIESEC_TOKEN: "test-token"
       DATABASE_URL: sqlite:////tmp/test.db
+      DB_SCHEMA: ""
     volumes:
       - ./htmlcov:/srv/htmlcov
       - ./.env:/srv/.env:ro
-      - ./services/aiesec-parser/app:/srv/app:ro
-      - ./services/aiesec-parser/tests:/srv/tests:ro
-      - ./services/aiesec-parser/pytest.ini:/srv/pytest.ini:ro
-      - ./services/aiesec-parser/targets.json:/srv/targets.json:ro
-      - ./services/aiesec-parser/.coveragerc:/srv/.coveragerc:ro
+      - ./parser/app:/srv/app:ro
+      - ./parser/tests:/srv/tests:ro
+      - ./parser/pytest.ini:/srv/pytest.ini:ro
+      - ./parser/targets.json:/srv/targets.json:ro
+      - ./parser/.coveragerc:/srv/.coveragerc:ro
     entrypoint: ["python", "-m", "pytest"]
     command: ["-q"]
 
 volumes:
   pgdata:
+    name: aiesec-pgdata
 
 networks:
   backend:
+    name: aiesec-backend

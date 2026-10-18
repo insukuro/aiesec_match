@@ -247,14 +247,26 @@ def test_parallel_requests_share_a_single_refresh():
 
 
 # ---------------- Settings ----------------
+
+
+
 def S(**kw):
-    base = dict(aiesec_token=None, aiesec_refresh_token=None, aiesec_client_id=None, aiesec_client_secret=None)
+    base = dict(
+        aiesec_token=None, aiesec_refresh_token=None,
+        aiesec_client_id=None, aiesec_client_secret=None,
+        allow_no_token=False,
+    )
     return Settings(_env_file=None, **{**base, **kw})
 
 
-def test_settings_need_some_credentials():
+def test_settings_need_some_credentials_or_explicit_allow():
     with pytest.raises(ValueError):
         S()
+
+
+def test_allow_no_token_lets_settings_start_without_creds():
+    s = S(allow_no_token=True)
+    assert s.aiesec_token is None and not s.auto_refresh
 
 
 def test_refresh_token_requires_client_credentials():

@@ -7,29 +7,32 @@ from pathlib import Path
 from datetime import date, timedelta
 from types import SimpleNamespace
 
-# Settings() создаётся при импорте app.main — окружение нужно выставить до любого импорта приложения.
+# ВАЖНО: env выставляется до импорта приложения.
+# DB_SCHEMA="" — тесты идут на sqlite, без явной схемы.
 _TMP = tempfile.mkdtemp(prefix="parser-tests-")
 os.environ.setdefault("AIESEC_TOKEN", "test-token")
 os.environ["DATABASE_URL"] = f"sqlite:///{_TMP}/api.db"
 os.environ["SCHEDULER_ENABLED"] = "false"
-os.environ["API_KEY"] = ""
 os.environ["TARGETS_FILE"] = str(Path(__file__).resolve().parent.parent / "targets.json")
+os.environ["DB_SCHEMA"] = ""
 
 import pytest  # noqa: E402
 
 from app.client import AiesecError  # noqa: E402
 from app.config import Settings, Targets  # noqa: E402
-from app.models import make_session_factory  # noqa: E402
+from app.models import Base, make_session_factory  # noqa: E402
 from app.sync import SyncService  # noqa: E402
 
 TODAY = date.today()
 FILTERS = {"home_mcs", "committee_scope", "programmes", "status", "created"}
 
 
-def make_row(oid, mc=1559, lc=None, status="open", slots=3, close=None, opened=None, title=None):
-    """Строка в том виде, как её отдаёт GraphQL: id строкой, вложенные объекты, даты ISO."""
+def make_row(oid, mc=1559, lc=None, status="open", slots=3, close=None, opened=None,
+             title=None, updated=None):
+    """Строка в том виде, как её отдаёт GraphQL."""
     close = close or TODAY + timedelta(days=30)
     opened = opened or TODAY - timedelta(days=10)
+    updated_iso = (updated or opened).isoformat() + ("Z" if "T" not in (updated or opened).isoformat() else "")
     return {
         "id": str(oid),
         "title": title or f"Opportunity {oid}",
@@ -42,6 +45,7 @@ def make_row(oid, mc=1559, lc=None, status="open", slots=3, close=None, opened=N
         "accepted_count": 0,
         "date_opened": opened.isoformat(),
         "applications_close_date": close.isoformat(),
+        "updated_at": updated_iso,
         "programme": {"id": "8", "short_name_display": "GTa"},
         "home_mc": {"id": str(mc), "name": "Country"},
         "home_lc": {"id": str(lc or 1), "name": "LC"},
@@ -50,21 +54,23 @@ def make_row(oid, mc=1559, lc=None, status="open", slots=3, close=None, opened=N
 
 
 class FakeClient:
-    """Имитирует AiesecClient: фильтрует выдачу по гео/статусу/created.from, пагинирует, пишет вызовы."""
+    """Имитирует AiesecClient: фильтрует выдачу, пагинирует, пишет вызовы."""
 
     def __init__(self, rows=None, supports_range=True, page_size=2, fail_on_page=None, single_getter=True):
         self.remote: list[dict] = list(rows or [])
         self.supports_range = supports_range
         self.page_size = page_size
-        self.fail_on_page = fail_on_page  # номер страницы, на которой «падаем»
+        self.fail_on_page = fail_on_page
         self.single_getter = single_getter
         self.calls: list[tuple[str, dict]] = []
         self.broken_fields: set[str] = set()
         self.auth_ok: bool | None = True
 
     def schema(self):
-        return SimpleNamespace(field="searchOpportunities", item_type="Opportunity",
-                               filters={k: {} for k in FILTERS})
+        return SimpleNamespace(
+            field="searchOpportunities", item_type="Opportunity",
+            filters={k: {} for k in FILTERS},
+        )
 
     def supports_range_filter(self, name):
         return self.supports_range and name in FILTERS
@@ -72,7 +78,7 @@ class FakeClient:
     @staticmethod
     def _slim(r):
         keys = ("id", "status", "current_status", "available_openings", "applicants_count",
-                "accepted_count", "applications_close_date")
+                "accepted_count", "applications_close_date", "updated_at")
         return {k: r[k] for k in keys if k in r}
 
     def _match(self, r, f):
@@ -123,7 +129,8 @@ def make_targets():
 def make_service(tmp_path):
     def _make(rows=None, **fake_kw):
         fake = FakeClient(rows, **fake_kw)
-        settings = Settings(aiesec_token="x", database_url="sqlite://", api_key=None)
+        settings = Settings(aiesec_token="x", database_url="sqlite://", allow_no_token=True)
         factory = make_session_factory(f"sqlite:///{tmp_path}/unit.db")
+        Base.metadata.create_all(factory.kw["bind"])  # тесты сами создают схему
         return SyncService(fake, settings, make_targets(), factory), fake, factory
     return _make

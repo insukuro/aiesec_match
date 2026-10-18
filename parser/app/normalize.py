@@ -1,13 +1,11 @@
-"""Приведение ответа AIESEC к колонкам БД. Возвращает только те колонки, чьи поля реально пришли
-(важно для «лёгких» запросов сверки: они не должны затирать остальные поля None-ами)."""
+"""Приведение ответа AIESEC к колонкам БД."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 _MISSING = object()
 
-# колонка -> поле верхнего уровня в API
 SCALARS = {
     "title": "title",
     "status": "status",
@@ -32,7 +30,6 @@ SCALARS = {
     "skills_developments": "skills_developments",
 }
 
-# колонка -> варианты пути во вложенных объектах (берём первый непустой)
 NESTED = {
     "programme_id": [("programme", "id")],
     "programme_name": [("programme", "short_name_display"), ("programme", "short_name"), ("programme", "name")],
@@ -51,6 +48,7 @@ NESTED = {
 INT_COLS = {"programme_id", "home_mc_id", "home_lc_id", "host_lc_id", "organisation_id",
             "openings", "available_openings", "applicants_count", "accepted_count", "duration"}
 DATE_COLS = {"date_opened", "applications_close_date", "earliest_start_date", "latest_end_date"}
+DATETIME_COLS = {"remote_updated_at"}
 
 
 def to_int(v: Any) -> int | None:
@@ -72,6 +70,17 @@ def to_date(v: Any) -> date | None:
         return None
     try:
         return date.fromisoformat(str(v)[:10])
+    except ValueError:
+        return None
+
+
+def to_datetime(v: Any) -> datetime | None:
+    """ISO-8601 из AIESEC (обычно с 'Z') -> naive UTC datetime."""
+    if not v:
+        return None
+    try:
+        s = str(v).replace("Z", "+00:00")
+        return datetime.fromisoformat(s).replace(tzinfo=None)
     except ValueError:
         return None
 
@@ -99,6 +108,8 @@ def normalize(raw: dict, full: bool = True) -> dict:
         out[col] = to_int(out[col])
     for col in DATE_COLS & out.keys():
         out[col] = to_date(out[col])
+    for col in DATETIME_COLS & out.keys():
+        out[col] = to_datetime(out[col])
     if "cost_total" in out:
         out["cost_total"] = to_float(out["cost_total"])
     if full:

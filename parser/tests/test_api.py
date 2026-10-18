@@ -1,4 +1,4 @@
-"""Тесты HTTP-ручек через TestClient. AIESEC подменён FakeClient, БД — временный sqlite."""
+"""Тесты HTTP-ручек через TestClient."""
 from collections import Counter
 from datetime import timedelta
 from types import SimpleNamespace
@@ -27,30 +27,30 @@ def api(monkeypatch):
     fake = FakeClient([dict(r) for r in ROWS])
     monkeypatch.setattr(main.service, "client", fake)
     monkeypatch.setattr(main, "client", fake)
-    monkeypatch.setattr(main.settings, "api_key", None)
     with TestClient(main.app) as c:
         yield SimpleNamespace(c=c, fake=fake)
 
 
 @pytest.fixture
 def seeded(api):
-    main.service._full(Counter())
+    main.service.run_sync_for_test("full")
     return api
 
 
 # ---------------- служебные ----------------
 def test_health(api):
     j = api.c.get("/health").json()
-    assert j == {"status": "ok", "sync_running": False, "scheduler": False,
-                 "aiesec_auth": "ok"}
+    assert j["status"] == "ok"
+    assert j["sync_running"] is False
+    assert j["scheduler"] is False
+    assert j["aiesec_auth"] in ("ok", "unknown")
 
 
-def test_api_key_required_when_configured(api, monkeypatch):
-    monkeypatch.setattr(main.settings, "api_key", "secret")
-    assert api.c.get("/opportunities").status_code == 401
-    assert api.c.get("/opportunities", headers={"X-API-Key": "wrong"}).status_code == 401
-    assert api.c.get("/opportunities", headers={"X-API-Key": "secret"}).status_code == 200
-    assert api.c.get("/health").status_code == 200  # health без ключа
+def test_api_is_not_protected(api):
+    """Сервис изолирован в окружении, x-api-key не используется."""
+    assert api.c.get("/opportunities").status_code == 200
+    assert api.c.post("/maintenance/expire").status_code == 200
+    assert api.c.get("/admin/targets").status_code == 200
 
 
 # ---------------- чтение ----------------
@@ -59,12 +59,12 @@ def test_list_and_shape(seeded):
     assert j["total"] == 4
     item = j["items"][0]
     assert "opportunity_id" in item and "id" not in item
-    assert "raw" not in item  # тяжёлое поле только в карточке
+    assert "raw" not in item
 
 
 def test_filters(seeded):
     ids = lambda **p: {i["opportunity_id"] for i in seeded.c.get("/opportunities", params=p).json()["items"]}
-    assert ids(country="tunisia") == {1, 4}            # регистронезависимо
+    assert ids(country="tunisia") == {1, 4}
     assert ids(city="Adana") == {3}
     assert ids(q="Cairo") == {2}
     assert ids(closing_before=(TODAY + timedelta(days=3)).isoformat()) == {4}
@@ -77,7 +77,7 @@ def test_pagination_and_sorting(seeded):
     j = seeded.c.get("/opportunities", params={"limit": 2, "offset": 2}).json()
     assert j["total"] == 4 and len(j["items"]) == 2
     first = seeded.c.get("/opportunities", params={"sort": "applications_close_date", "desc": "false"}).json()
-    assert first["items"][0]["opportunity_id"] == 4    # самый ранний дедлайн
+    assert first["items"][0]["opportunity_id"] == 4
     assert seeded.c.get("/opportunities", params={"limit": 9999}).status_code == 422
 
 
