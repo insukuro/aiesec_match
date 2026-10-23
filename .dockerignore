@@ -15,8 +15,7 @@ htmlcov
 docs
 parser/tests
 parser/.coveragerc
-parser/pytest.ini
-parser/requirements-dev.txt
+
 docker-compose*.yml
 Makefile
 README.md
