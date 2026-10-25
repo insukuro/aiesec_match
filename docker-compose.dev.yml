@@ -1,6 +1,10 @@
-name: aiesec-platform
-
 services:
+  postgres:
+    container_name: aiesec-postgres-dev
+
+  db-init:
+    container_name: aiesec-db-init-dev
+
   parser:
     build:
       context: .
@@ -46,8 +50,4 @@ services:
 
 volumes:
   pgdata:
-    name: aiesec-pgdata
-
-networks:
-  backend:
-    name: aiesec-backend
+    name: aiesec-pgdata-dev
