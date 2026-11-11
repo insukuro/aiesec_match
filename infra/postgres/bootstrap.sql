@@ -28,10 +28,14 @@ ALTER SCHEMA catalog OWNER TO parser_writer;
 ALTER SCHEMA core    OWNER TO backend_writer;
 ALTER SCHEMA matcher OWNER TO matcher_writer;
 
+
 GRANT USAGE ON SCHEMA catalog TO catalog_ro;
-GRANT SELECT ON ALL TABLES IN SCHEMA catalog TO catalog_ro;
+GRANT SELECT ON ALL TABLES    IN SCHEMA catalog TO catalog_ro;
+GRANT SELECT ON ALL SEQUENCES IN SCHEMA catalog TO catalog_ro;
+
 ALTER DEFAULT PRIVILEGES FOR ROLE parser_writer IN SCHEMA catalog
     GRANT SELECT ON TABLES TO catalog_ro;
+
 GRANT catalog_ro TO backend_writer, matcher_writer;
 
 REVOKE ALL ON SCHEMA parser, core, matcher FROM PUBLIC;
