@@ -1,4 +1,4 @@
-"""initial: raw.opportunities, raw.sync_runs, raw.sync_state + app.opportunities view
+"""initial: parser.opportunities, parser.sync_runs, parser.sync_state
 
 Revision ID: 0001
 Revises:
@@ -15,12 +15,10 @@ down_revision = None
 branch_labels = None
 depends_on = None
 
-SCHEMA_RAW = "raw"
-SCHEMA_APP = "app"
+SCHEMA = "parser"
 
 
 def upgrade() -> None:
-
     op.create_table(
         "opportunities",
         sa.Column("opportunity_id", sa.Integer(), primary_key=True, autoincrement=False),
@@ -65,7 +63,7 @@ def upgrade() -> None:
         sa.Column("last_seen_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
         sa.Column("closed_at", sa.DateTime()),
         sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
-        schema=SCHEMA_RAW,
+        schema=SCHEMA,
     )
 
     op.create_table(
@@ -77,59 +75,18 @@ def upgrade() -> None:
         sa.Column("finished_at", sa.DateTime()),
         sa.Column("stats", postgresql.JSONB()),
         sa.Column("error", sa.Text()),
-        schema=SCHEMA_RAW,
+        schema=SCHEMA,
     )
 
     op.create_table(
         "sync_state",
         sa.Column("key", sa.String(50), primary_key=True),
         sa.Column("value", sa.Text()),
-        schema=SCHEMA_RAW,
+        schema=SCHEMA,
     )
-
-    op.execute(f"""
-        CREATE VIEW {SCHEMA_APP}.opportunities AS
-        SELECT
-            opportunity_id, title, status, current_status, programme_id, programme_name,
-            home_mc_id, home_mc_name, home_lc_id, home_lc_name, host_lc_id, host_lc_name,
-            location, organisation_id, organisation_name,
-            openings, available_openings, applicants_count, accepted_count,
-            date_opened, applications_close_date, earliest_start_date, latest_end_date,
-            duration, experience_type, cost_total, cost_currency, remote_updated_at,
-            skills, backgrounds, languages, study_levels, nationalities, skills_developments,
-            is_open, close_reason, first_seen_at, last_seen_at, closed_at, updated_at
-        FROM {SCHEMA_RAW}.opportunities
-    """)
-
-    # Права ролям, если они существуют (на sqlite/тестах ролей нет — блок no-op).
-    # GRANT выполняется от владельца схемы (parser_writer), поэтому разрешён.
-    op.execute("""
-        DO $$
-        BEGIN
-            IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'backend_reader') THEN
-                GRANT SELECT ON app.opportunities TO backend_reader;
-            END IF;
-            IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'backend_writer') THEN
-                GRANT SELECT ON app.opportunities TO backend_writer;
-            END IF;
-            IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'parser_writer') THEN
-                GRANT USAGE ON SCHEMA raw TO parser_writer;
-                GRANT USAGE ON SCHEMA app TO parser_writer;
-                GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA raw TO parser_writer;
-                GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA raw TO parser_writer;
-                GRANT SELECT ON app.opportunities TO parser_writer;
-                ALTER DEFAULT PRIVILEGES IN SCHEMA raw
-                    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO parser_writer;
-                ALTER DEFAULT PRIVILEGES IN SCHEMA app
-                    GRANT SELECT ON TABLES TO parser_writer;
-            END IF;
-        END
-        $$;
-    """)
 
 
 def downgrade() -> None:
-    op.execute(f"DROP VIEW IF EXISTS {SCHEMA_APP}.opportunities")
-    op.drop_table("sync_state", schema=SCHEMA_RAW)
-    op.drop_table("sync_runs", schema=SCHEMA_RAW)
-    op.drop_table("opportunities", schema=SCHEMA_RAW)
+    op.drop_table("sync_state", schema=SCHEMA)
+    op.drop_table("sync_runs", schema=SCHEMA)
+    op.drop_table("opportunities", schema=SCHEMA)

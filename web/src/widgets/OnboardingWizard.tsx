@@ -1,0 +1,1 @@
+export { FormRenderer as OnboardingWizard } from "../features/questionnaire/FormRenderer";

@@ -1,35 +1,44 @@
--- Идемпотентно: роли создаются, если нет; пароли обновляются всегда.
--- Запускается из db-init на каждом `docker compose up`.
+-- Идемпотентно: роли создаются, если их нет; пароли обновляются всегда.
+-- Порядок: роли -> пароли -> \connect -> схемы -> владельцы -> гранты -> таймауты.
 
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'parser_writer') THEN
-        CREATE ROLE parser_writer LOGIN;
-    END IF;
-    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'backend_reader') THEN
-        CREATE ROLE backend_reader LOGIN;
-    END IF;
-    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'backend_writer') THEN
-        CREATE ROLE backend_writer LOGIN;
-    END IF;
-END
-$$;
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'parser_writer')  THEN CREATE ROLE parser_writer  LOGIN; END IF;
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'backend_writer') THEN CREATE ROLE backend_writer LOGIN; END IF;
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'matcher_writer') THEN CREATE ROLE matcher_writer LOGIN; END IF;
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'catalog_ro')     THEN CREATE ROLE catalog_ro     NOLOGIN; END IF;
+END $$;
 
-ALTER ROLE parser_writer   WITH PASSWORD :'parser_pw';
-ALTER ROLE backend_reader  WITH PASSWORD :'backend_pw';
-ALTER ROLE backend_writer  WITH PASSWORD :'backend_pw';
+ALTER ROLE parser_writer  WITH PASSWORD :'parser_pw';
+ALTER ROLE backend_writer WITH PASSWORD :'backend_pw';
+ALTER ROLE matcher_writer WITH PASSWORD :'matcher_pw';
 
-\connect :"parser_db"
+\connect :"app_db"
 
-GRANT CONNECT ON DATABASE :"parser_db" TO parser_writer, backend_reader, backend_writer;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS vector;
 
--- Схемы: владелец parser_writer, но создаются от platform (суперюзер).
--- IF NOT EXISTS — идемпотентно.
-CREATE SCHEMA IF NOT EXISTS raw AUTHORIZATION parser_writer;
-CREATE SCHEMA IF NOT EXISTS app AUTHORIZATION parser_writer;
+CREATE SCHEMA IF NOT EXISTS parser;
+CREATE SCHEMA IF NOT EXISTS catalog;
+CREATE SCHEMA IF NOT EXISTS core;
+CREATE SCHEMA IF NOT EXISTS matcher;
 
-GRANT USAGE, CREATE ON SCHEMA raw TO parser_writer;
-GRANT USAGE, CREATE ON SCHEMA app TO parser_writer;
+ALTER SCHEMA parser  OWNER TO parser_writer;
+ALTER SCHEMA catalog OWNER TO parser_writer;
+ALTER SCHEMA core    OWNER TO backend_writer;
+ALTER SCHEMA matcher OWNER TO matcher_writer;
 
-GRANT USAGE ON SCHEMA app TO backend_reader, backend_writer;
-GRANT USAGE ON SCHEMA raw TO backend_reader, backend_writer;
+GRANT USAGE ON SCHEMA catalog TO catalog_ro;
+GRANT SELECT ON ALL TABLES IN SCHEMA catalog TO catalog_ro;
+ALTER DEFAULT PRIVILEGES FOR ROLE parser_writer IN SCHEMA catalog
+    GRANT SELECT ON TABLES TO catalog_ro;
+GRANT catalog_ro TO backend_writer, matcher_writer;
+
+REVOKE ALL ON SCHEMA parser, core, matcher FROM PUBLIC;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+
+ALTER ROLE matcher_writer SET statement_timeout = '5s';
+ALTER ROLE backend_writer SET statement_timeout = '5s';
+ALTER ROLE parser_writer  SET statement_timeout = '60s';
+ALTER ROLE matcher_writer SET idle_in_transaction_session_timeout = '30s';
+ALTER ROLE backend_writer SET idle_in_transaction_session_timeout = '30s';

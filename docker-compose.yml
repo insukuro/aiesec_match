@@ -1,6 +1,25 @@
 name: aiesec-match
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: aiesec-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-platform}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env}
+      POSTGRES_DB: postgres
+      APP_DB: ${APP_DB:-aiesec_match}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-platform} -d ${APP_DB:-aiesec_match}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [backend]
+
   db-init:
     image: postgres:16-alpine
     container_name: aiesec-db-init
@@ -13,44 +32,54 @@ services:
       PGPORT: "5432"
       PGUSER: ${POSTGRES_USER:-platform}
       PGPASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env}
-      PARSER_DB: ${PARSER_DB:-parser}
-      PARSER_DB_PASSWORD: ${PARSER_DB_PASSWORD:-parser}
+      APP_DB: ${APP_DB:-aiesec_match}
       BACKEND_DB_PASSWORD: ${BACKEND_DB_PASSWORD:-backend}
+      PARSER_DB_PASSWORD: ${PARSER_DB_PASSWORD:-parser}
     volumes:
       - ./infra/postgres:/bootstrap:ro
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
         set -e
-        echo "== bootstrap roles =="
         psql -v ON_ERROR_STOP=1 \
-             -v parser_pw="$$PARSER_DB_PASSWORD" \
+             -v app_db="$$APP_DB" \
              -v backend_pw="$$BACKEND_DB_PASSWORD" \
-             -v parser_db="$$PARSER_DB" \
+             -v parser_pw="$$PARSER_DB_PASSWORD" \
+             -v matcher_pw="${MATCHER_DB_PASSWORD:-matcher}" \
              -d postgres -f /bootstrap/bootstrap.sql
-        echo "== done =="
     networks: [backend]
 
-  postgres:
-    image: postgres:16-alpine
-    container_name: aiesec-postgres
+  backend:
+    build:
+      context: .
+      dockerfile: infra/docker/backend.Dockerfile
+    image: aiesec-backend:local
+    container_name: aiesec-backend
     restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      db-init:  { condition: service_completed_successfully }
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-platform}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env}
-      POSTGRES_DB: postgres
-      PARSER_DB: ${PARSER_DB:-parser}
-      PARSER_DB_PASSWORD: ${PARSER_DB_PASSWORD:-parser}
-      BACKEND_DB_PASSWORD: ${BACKEND_DB_PASSWORD:-backend}
-    volumes:
-      # ВАЖНО: том НЕ удаляется при docker compose down — только при `down -v`.
-      - pgdata:/var/lib/postgresql/data
-      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-platform} -d ${PARSER_DB:-parser}"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
+      AIESEC_DATABASE_URL: postgresql+asyncpg://backend_writer:${BACKEND_DB_PASSWORD:-backend}@postgres:5432/${APP_DB:-aiesec_match}
+      AIESEC_JWT_SECRET: ${JWT_SECRET:-change-me}
+      AIESEC_TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      AIESEC_PROFILE_HMAC_SECRET: ${PROFILE_HMAC_SECRET:-change-me-hmac}
+      AIESEC_MATCHER_BASE_URL: http://matcher:8000
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
+    networks: [backend]
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/web.Dockerfile
+    image: aiesec-web:local
+    container_name: aiesec-web
+    restart: unless-stopped
+    depends_on:
+      backend: { condition: service_healthy }
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8080}:80"
     networks: [backend]
 
   parser:
@@ -74,7 +103,7 @@ services:
       AIESEC_AUTH_ORIGIN: ${AIESEC_AUTH_ORIGIN:-https://aiesec.org}
       ALLOW_NO_TOKEN: ${PARSER_ALLOW_NO_TOKEN:-false}
       DATABASE_URL: postgresql+psycopg://parser_writer:${PARSER_DB_PASSWORD:-parser}@postgres:5432/${PARSER_DB:-parser}
-      DB_SCHEMA: raw
+      DB_SCHEMA: parser
       TARGETS_FILE: /srv/targets.json
       REQUEST_DELAY_SEC: ${PARSER_REQUEST_DELAY_SEC:-0.7}
       INCREMENTAL_INTERVAL_MINUTES: ${PARSER_INCREMENTAL_INTERVAL_MINUTES:-360}
@@ -94,8 +123,6 @@ services:
     networks: [backend]
 
 volumes:
-  # Именованный volume: данные переживают `docker compose down`.
-  # Удаляется только `docker compose down -v` (осознанно).
   pgdata:
     name: aiesec-pgdata
 

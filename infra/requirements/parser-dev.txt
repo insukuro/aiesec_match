@@ -1,0 +1,5 @@
+-r parser.txt
+pytest
+pytest-asyncio
+pytest-cov
+httpx

@@ -21,7 +21,7 @@ class Base(DeclarativeBase):
 
 
 def _schema() -> str | None:
-    s = os.environ.get("DB_SCHEMA", "raw")
+    s = os.environ.get("DB_SCHEMA", "parser")
     return s or None
 
 

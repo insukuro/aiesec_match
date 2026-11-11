@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     # --- БД ---
     database_url: str = "sqlite:///./data/parser.db"
     # Схема для таблиц приложения. В тестах (sqlite) выставляется "" — см. conftest.
-    db_schema: str = "raw"
+    db_schema: str = "parser"
 
     targets_file: str = "targets.json"
 

@@ -1,0 +1,85 @@
+version: "1"
+steps:
+  - id: consent
+    title: "Согласие"
+    fields:
+      - id: pd_processing
+        kind: boolean
+        label: "Я согласен(на) на обработку персональных данных"
+        required: true
+        maps_to: consent.pd_processing
+      - id: marketing
+        kind: boolean
+        label: "Согласен(на) на маркетинговые сообщения"
+        required: false
+        maps_to: consent.marketing
+  - id: programmes
+    title: "Что ищешь"
+    fields:
+      - id: programmes
+        kind: multi
+        label: "Программы"
+        options_source: programmes
+        maps_to: programmes
+        ui: { widget: cards }
+  - id: about
+    title: "О тебе"
+    fields:
+      - id: birth_date
+        kind: date
+        label: "Дата рождения"
+        required: true
+        maps_to: birth_date
+      - id: study_status
+        kind: single
+        label: "Статус обучения"
+        required: true
+        options_source: study_status
+        maps_to: study.status
+        ui: { widget: segmented }
+      - id: study_course
+        kind: number
+        label: "Курс"
+        validation: { min: 1, max: 6 }
+        show_if: { any: [{ field: study_status, op: in, value: ["bachelor", "master"] }] }
+        maps_to: study.course
+        ui: { widget: stepper }
+      - id: english_level
+        kind: single
+        label: "Уровень английского"
+        required: true
+        options_source: english_level
+        maps_to: english_level
+        ui: { widget: chips }
+  - id: interests
+    title: "Интересы"
+    fields:
+      - id: spheres
+        kind: multi
+        label: "Сферы"
+        options_source: spheres
+        show_if: { any: [
+          { field: programmes, op: in, value: ["talent","teacher"] },
+          { field: programmes, op: empty }
+        ] }
+        maps_to: spheres
+      - id: activities
+        kind: multi
+        label: "Чем хочешь заниматься"
+        options_source: activities
+        show_if: { any: [
+          { field: programmes, op: in, value: ["volunteer"] },
+          { field: programmes, op: empty }
+        ] }
+        maps_to: activities
+  - id: conditions
+    title: "Условия"
+    fields:
+      - id: duration
+        kind: multi
+        label: "Срок"
+        options_source: durations
+        maps_to: duration
+  - id: final
+    title: "Проверка"
+    fields: []

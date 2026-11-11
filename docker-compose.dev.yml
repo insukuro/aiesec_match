@@ -1,33 +1,95 @@
 services:
   postgres:
+    image: pgvector/pgvector:pg16
     container_name: aiesec-postgres-dev
+    environment:
+      APP_DB: ${APP_DB:-aiesec_match_dev}
 
   db-init:
+    image: pgvector/pgvector:pg16
     container_name: aiesec-db-init-dev
+    environment:
+      APP_DB: ${APP_DB:-aiesec_match_dev}
+
+  backend:
+    build:
+      context: .
+      dockerfile: infra/docker/backend.Dockerfile
+      args:
+        REQUIREMENTS: /srv/requirements/backend-dev.txt
+    image: aiesec-backend:dev
+    container_name: aiesec-backend-dev
+    command:
+      - sh
+      - -c
+      - alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      AIESEC_DATABASE_URL: postgresql+asyncpg://backend_writer:${BACKEND_DB_PASSWORD:-backend}@postgres:5432/${APP_DB:-aiesec_match_dev}
+      AIESEC_MATCHER_BASE_URL: ${MATCHER_BASE_URL:-http://matcher:8000}
+    volumes:
+      - ./.env:/srv/.env:ro
+      - ./backend/app:/srv/app
+      - ./backend/migrations:/srv/migrations
+      - ./backend/openapi:/srv/openapi
+      - ./backend/tests:/srv/tests
 
   parser:
     build:
       context: .
-      dockerfile: infra/docker/parser.dev.Dockerfile
+      dockerfile: infra/docker/parser.Dockerfile
+      args:
+        REQUIREMENTS: /srv/requirements/parser-dev.txt
     image: aiesec-parser:dev
     container_name: aiesec-parser-dev
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--workers", "1"]
+    command:
+      - sh
+      - -c
+      - alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --workers 1
     environment:
+      DB_SCHEMA: parser
       SCHEDULER_ENABLED: "false"
       ALLOW_NO_TOKEN: "true"
+      DATABASE_URL: postgresql+psycopg://parser_writer:${PARSER_DB_PASSWORD:-parser}@postgres:5432/${APP_DB:-aiesec_match_dev}
     volumes:
       - ./.env:/srv/.env:ro
-      - ./parser/app:/srv/app:ro
+      - ./parser/app:/srv/app
       - ./parser/targets.json:/srv/targets.json:ro
-      - ./parser/tests:/srv/tests:ro
+      - ./parser/tests:/srv/tests
       - ./parser/pytest.ini:/srv/pytest.ini:ro
       - ./parser/alembic.ini:/srv/alembic.ini:ro
-      - ./parser/migrations:/srv/migrations:ro
+      - ./parser/migrations:/srv/migrations
 
-  tests:
+  # web в dev не поднимается: используем `npm run dev` локально.
+  web:
+    profiles: ["never"]
+
+  # ---------- тесты (только по `--profile tools`) ----------
+
+  backend-tests:
     build:
       context: .
-      dockerfile: infra/docker/parser.dev.Dockerfile
+      dockerfile: infra/docker/backend.Dockerfile
+      args:
+        REQUIREMENTS: /srv/requirements/backend-dev.txt
+    image: aiesec-backend:dev
+    profiles: ["tools"]
+    working_dir: /srv
+    environment:
+      AIESEC_DATABASE_URL: sqlite+aiosqlite:////tmp/test.db
+    volumes:
+      - ./backend/app:/srv/app
+      - ./backend/tests:/srv/tests
+      - ./backend/migrations:/srv/migrations
+      - ./htmlcov:/srv/htmlcov
+    entrypoint: ["pytest"]
+    command: ["-q", "--cov=app", "--cov-report=term", "--cov-report=html"]
+
+  parser-tests:
+    build:
+      context: .
+      dockerfile: infra/docker/parser.Dockerfile
+      args:
+        REQUIREMENTS: /srv/requirements/parser-dev.txt
     image: aiesec-parser:dev
     profiles: ["tools"]
     working_dir: /srv
@@ -38,13 +100,13 @@ services:
       DATABASE_URL: sqlite:////tmp/test.db
       DB_SCHEMA: ""
     volumes:
-      - ./htmlcov:/srv/htmlcov
       - ./.env:/srv/.env:ro
       - ./parser/app:/srv/app:ro
       - ./parser/tests:/srv/tests:ro
       - ./parser/pytest.ini:/srv/pytest.ini:ro
       - ./parser/targets.json:/srv/targets.json:ro
       - ./parser/.coveragerc:/srv/.coveragerc:ro
+      - ./htmlcov:/srv/htmlcov
     entrypoint: ["python", "-m", "pytest"]
     command: ["-q"]
 

@@ -19,18 +19,18 @@ target_metadata = Base.metadata
 
 
 def _require_schemas(connection) -> None:
-    """Схемы создаёт db-init (bootstrap.sql). Здесь — только проверка.
-    Если схемы нет — даём понятную ошибку вместо невнятного 'schema does not exist'."""
+    """Схемы создаёт db-init (bootstrap.sql). Здесь — только проверка."""
+    schema = settings.db_schema
+    if not schema:
+        return
     existing = set(inspect(connection).get_schema_names())
-    for schema in filter(None, [settings.db_schema, "app"]):
-        if schema not in existing:
-            raise RuntimeError(
-                f"Схема '{schema}' не существует в БД. "
-                f"Проверьте: docker compose logs db-init. "
-                f"Если db-init не отработал — пересоздайте инфраструктуру: "
-                f"docker compose down -v && docker compose up -d"
-            )
-
+    if schema not in existing:
+        raise RuntimeError(
+            f"Схема '{schema}' не существует в БД. "
+            f"Проверьте: docker compose logs db-init. "
+            f"Если db-init не отработал — пересоздайте инфраструктуру: "
+            f"docker compose down -v && docker compose up -d"
+        )
 
 def run_migrations_offline() -> None:
     context.configure(
