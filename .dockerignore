@@ -24,3 +24,9 @@ frontend
 matcher
 tg_bot
 data
+
+.venv
+tests
+__pycache__
+*.pyc
+.pytest_cache

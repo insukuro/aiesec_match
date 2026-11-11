@@ -121,6 +121,27 @@ services:
       retries: 5
       start_period: 20s
     networks: [backend]
+    
+  matcher:
+    build:
+      context: ./matcher
+    container_name: aiesec-matcher
+    restart: unless-stopped
+    environment:
+      MATCHER_CATALOG_SOURCE: ${MATCHER_CATALOG_SOURCE:-fake}
+      MATCHER_DATABASE_URL: postgresql+psycopg://matcher_writer:${MATCHER_DB_PASSWORD}@postgres:5432/${APP_DB:-app}
+    ports:
+      - "127.0.0.1:${MATCHER_PORT:-8002}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks: [backend]
+
 
 volumes:
   pgdata:
