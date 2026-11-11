@@ -62,3 +62,10 @@ class MatchResponse(BaseModel):
     degraded: List[str] = []
     took_ms: int = 0
     groups: List[ProgrammeGroup] = []
+
+class Dictionary(BaseModel):
+    id: int
+    name: str
+
+class HealthResponse(BaseModel):
+    status: str = "ok"
