@@ -46,6 +46,8 @@ class MatchItem(BaseModel):
     label: Literal["excellent", "good", "fair"]
     reasons: List[Reason] = []
     breakdown: Dict[str, float] = {}
+    family_key: Optional[str] = None
+    siblings_count: int = 0
 
 class ProgrammeGroup(BaseModel):
     programme_kind: ProgrammeKind
