@@ -1,0 +1,12 @@
+[
+  {"opportunity_id": 1340614, "programme_kind": "talent", "title": "Sales at OZSAYIN",
+   "is_open": true, "available_openings": 2, "duration_weeks": 8, "cost_total": null,
+   "requirements": [
+     {"kind": "background", "constant_id": 10253, "option": "required"},
+     {"kind": "skill", "constant_id": 10161, "option": "required"},
+     {"kind": "language", "constant_id": 10018, "option": "required"},
+     {"kind": "nationality", "constant_id": 10463, "option": "required"}]},
+  {"opportunity_id": 2, "programme_kind": "volunteer", "title": "Teach kids",
+   "is_open": true, "available_openings": 1, "duration_weeks": 6, "cost_total": 300,
+   "requirements": [{"kind": "language", "constant_id": 10018, "option": "required"}]}
+]
