@@ -1,21 +1,45 @@
-from __future__ import annotations
+from app.deps import get_catalog_reader
+from app.main import app
+from tests.factories import BrokenReader
 
-def test_health(client) -> None:
-    response = client.get("/health")
+BODY = {"profile_id": "t",
+        "profile": {"programmes": ["talent"], "english_level": "B2",
+                    "spheres": ["marketing", "sales"]},
+        "filters": {}}
+FEATURES = {"background", "skill", "language", "city", "duration", "cost", "chance", "freshness"}
 
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
 
-def test_dictionaries_skills(client):
+def test_health(client):
+    assert client.get("/health").status_code == 200
+
+def test_dictionary(client):
     r = client.get("/dictionaries/skills")
     assert r.status_code == 200
-    data = r.json()               # список dict'ов
-    assert len(data) > 0          # не пустой
-    first = data[0]               # первый элемент, это dict
-    assert "id" in first          # ключ id есть
-    assert "name" in first        # ключ name есть
-    assert "matching_with_opportunity" not in first
+    assert "id" in r.json()[0] and "name" in r.json()[0]
 
-def test_dictionaries_foo(client):
-    response = client.get("/dictionaries/foo")
-    assert response.status_code == 422
+def test_dictionary_unknown(client):
+    assert client.get("/dictionaries/foo").status_code == 422
+
+def test_match_ok(client):
+    r = client.post("/v1/match", json=BODY)
+    assert r.status_code == 200
+    groups = r.json()["groups"]
+    assert [g["programme_kind"] for g in groups] == ["talent"]
+    first = groups[0]["items"][0]
+    assert first["opportunity_id"] == 1               # совпали и образование, и навык
+    assert set(first["breakdown"]) == FEATURES
+    assert 0 <= first["score"] <= 1
+
+def test_match_ignores_unknown_profile_fields(client):
+    body = {**BODY, "profile": {**BODY["profile"], "something_new": 1}}
+    assert client.post("/v1/match", json=body).status_code == 200
+
+def test_match_without_programmes_422(client):
+    assert client.post("/v1/match", json={"profile": {}}).status_code == 422
+
+def test_unknown_strategy_422(client):
+    assert client.post("/v1/match", json={**BODY, "strategy": "magic"}).status_code == 422
+
+def test_catalog_down_503(client):
+    app.dependency_overrides[get_catalog_reader] = lambda: BrokenReader()
+    assert client.post("/v1/match", json=BODY).status_code == 503
