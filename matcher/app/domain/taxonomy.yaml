@@ -1,0 +1,15 @@
+spheres:              # сфера или активность -> constant_id
+  marketing:  {backgrounds: [10253], skills: []}
+  sales:      {backgrounds: [21677], skills: [10161]}   # 21677 из ТЗ, проверить в backgrounds.json
+  teaching_*: {backgrounds: [10241], skills: [10162]}   # * значит любое teaching_...
+study_levels:
+  school: 10782
+  bachelor: 10785
+languages:            # other_languages -> constant_id
+  en: 10018
+  ru: 10043
+  es: 10048
+  pt: 10041
+nationalities:        # код страны -> constant_id
+  RU: 10463
+  AZ: 10353
