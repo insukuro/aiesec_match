@@ -122,16 +122,17 @@ services:
       start_period: 20s
     networks: [backend]
     
+    
   matcher:
     build:
-      context: ./matcher
+      context: .
+      dockerfile: infra/docker/matcher.Dockerfile
+    image: aiesec-matcher
     container_name: aiesec-matcher
     restart: unless-stopped
     environment:
       MATCHER_CATALOG_SOURCE: ${MATCHER_CATALOG_SOURCE:-fake}
-      MATCHER_DATABASE_URL: postgresql+psycopg://matcher_writer:${MATCHER_DB_PASSWORD}@postgres:5432/${APP_DB:-app}
-    ports:
-      - "127.0.0.1:${MATCHER_PORT:-8002}:8000"
+      MATCHER_DATABASE_URL: postgresql+psycopg://matcher_writer:${MATCHER_DB_PASSWORD:-matcher}@postgres:5432/${APP_DB:-aiesec_match}    
     depends_on:
       postgres:
         condition: service_healthy
@@ -140,7 +141,8 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
-    networks: [backend]
+    networks:
+      - backend
 
 
 volumes:

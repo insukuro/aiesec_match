@@ -21,7 +21,8 @@ Makefile
 README.md
 scripts
 frontend
-matcher
+matcher/.venv
+matcher/.pytest_cache
 tg_bot
 data
 

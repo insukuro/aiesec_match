@@ -58,6 +58,24 @@ services:
       - ./parser/pytest.ini:/srv/pytest.ini:ro
       - ./parser/alembic.ini:/srv/alembic.ini:ro
       - ./parser/migrations:/srv/migrations
+  
+  matcher:
+    build:
+      context: .
+      dockerfile: infra/docker/matcher.Dockerfile
+      args:
+        REQUIREMENTS: /srv/requirements/matcher-dev.txt
+    image: aiesec-matcher:dev
+    container_name: aiesec-matcher-dev
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      MATCHER_CATALOG_SOURCE: ${MATCHER_CATALOG_SOURCE:-fake}
+      MATCHER_DATABASE_URL: postgresql+psycopg://matcher_writer:${MATCHER_DB_PASSWORD:-matcher}@postgres:5432/${APP_DB:-aiesec_match_dev}
+    volumes:
+      - ./matcher/app:/srv/app
+      - ./matcher/tests:/srv/tests
+    ports:
+      - "127.0.0.1:${MATCHER_PORT:-8002}:8000"
 
   # web в dev не поднимается: используем `npm run dev` локально.
   web:
