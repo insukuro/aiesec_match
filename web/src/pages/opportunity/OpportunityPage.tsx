@@ -30,14 +30,20 @@ export function OpportunityPage() {
   if (!q.data) return null;
   const o = q.data;
 
+const AIESEC_SLUG: Record<string, string> = {
+  talent: "global-talent",
+  teacher: "global-teacher",
+  volunteer: "global-volunteer",
+};
+
   const onApply = async () => {
     await feedback.mutateAsync({ opportunity_id: o.opportunity_id, signal: "applied" });
-    if (o.family.family_key) {
-      const list = await api.listOpportunities({ family_key: o.family.family_key, limit: 20 });
-      if (list.items.length > 0) {
-        window.open(`https://aiesec.org/opportunity/${o.opportunity_id}`, "_blank", "noopener");
-      }
-    }
+    const slug = AIESEC_SLUG[o.programme.kind] ?? "global-talent";
+    window.open(
+      `https://aiesec.org/opportunity/${slug}/${o.opportunity_id}`,
+      "_blank",
+      "noopener"
+    );
   };
 
   return (

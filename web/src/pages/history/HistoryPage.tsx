@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { api } from "../../shared/api/endpoints";
 import { qk } from "../../shared/api/queries";
 import { HistoryEventItem } from "../../entities/history/HistoryEventItem";
@@ -10,6 +11,9 @@ import { Skeleton } from "../../shared/ui/Skeleton";
 import { Button } from "../../shared/ui/Button";
 import { Chip } from "../../shared/ui/Chip";
 import type { HistoryType } from "../../shared/api/types";
+import { useAuth } from "../../features/auth/AuthContext";
+import { GuestBanner } from "../../widgets/GuestBanner";
+import { ROUTES } from "../../app/routes";
 
 const TYPES: Array<{ id: HistoryType | "all"; label: string }> = [
   { id: "all", label: "Все события" },
@@ -21,6 +25,8 @@ const TYPES: Array<{ id: HistoryType | "all"; label: string }> = [
 ];
 
 export function HistoryPage() {
+  const nav = useNavigate();
+  const { isGuest } = useAuth();
   const [type, setType] = useState<HistoryType | "all">("all");
   const [period, setPeriod] = useState<Period>("30d");
   const [from, setFrom] = useState<string | undefined>();
@@ -30,17 +36,26 @@ export function HistoryPage() {
 
   useEffect(() => { document.title = "История — AIESEC Match"; }, []);
 
-  const params = {
-    type: type === "all" ? undefined : type,
-    from,
-    to,
-    limit,
-    offset,
-  };
+  const params = { type: type === "all" ? undefined : type, from, to, limit, offset };
   const q = useQuery({
     queryKey: qk.history(params as Record<string, unknown>),
-    queryFn: () => api.getHistory(params),
+    queryFn: () => api.getHistory(params as Record<string, string | number | undefined>),
+    enabled: !isGuest,
   });
+
+  if (isGuest) {
+    return (
+      <main className="page">
+        <h1 className="page__title">История</h1>
+        <GuestBanner />
+        <EmptyState
+          title="Создайте аккаунт"
+          description="История доступна только в аккаунте."
+          action={<Button onClick={() => nav(ROUTES.register)}>Создать аккаунт</Button>}
+        />
+      </main>
+    );
+  }
 
   return (
     <main className="page">

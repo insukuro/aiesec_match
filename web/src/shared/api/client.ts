@@ -1,12 +1,15 @@
 import type { Problem } from "./types";
 
 const API_BASE = "/api/v1";
+const TOKEN_KEY = "access_token";
 
-let accessToken: string | null = null;
+let accessToken: string | null = localStorage.getItem(TOKEN_KEY);
 let onUnauthorized: (() => void) | null = null;
 
 export function setAccessToken(token: string | null): void {
   accessToken = token;
+  if (token) localStorage.setItem(TOKEN_KEY, token);
+  else localStorage.removeItem(TOKEN_KEY);
 }
 
 export function getAccessToken(): string | null {
@@ -20,6 +23,7 @@ export function setUnauthorizedHandler(fn: (() => void) | null): void {
 export class ApiError extends Error {
   constructor(public readonly status: number, public readonly problem: Problem) {
     super(problem.title || `HTTP ${status}`);
+    this.name = "ApiError";
   }
 }
 
@@ -78,8 +82,9 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
     });
   }
 
-  if (res.status === 401) {
-    if (!skipAuth && onUnauthorized) onUnauthorized();
+  if (res.status === 401 && !skipAuth) {
+    setAccessToken(null);
+    if (onUnauthorized) onUnauthorized();
     throw new ApiError(401, await parseProblem(res));
   }
   if (!res.ok) throw new ApiError(res.status, await parseProblem(res));

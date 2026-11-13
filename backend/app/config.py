@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="AIESEC_", extra="ignore")
 
-    database_url: str = "postgresql+asyncpg://backend_rw:backend_pw@db:5432/aiesec_match"
+    database_url: str = "postgresql+asyncpg://backend_writer:backend@postgres:5432/aiesec_match"
     jwt_secret: str = "change-me"
     jwt_ttl_seconds: int = 24 * 3600
     telegram_bot_token: str = ""

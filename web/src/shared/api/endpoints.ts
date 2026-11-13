@@ -2,6 +2,7 @@ import { request } from "./client";
 import type {
   AnalyticsPeriod,
   AnalyticsResponse,
+  AuthToken,
   DashboardPreferences,
   FeedbackIn,
   FormOptions,
@@ -19,34 +20,28 @@ import type {
   SubscriptionPrefs,
 } from "./types";
 
-export interface AnonymousAuthResponse {
-  access_token: string;
-  expires_in: number;
-  device_secret: string | null;
-}
-
-export interface TokenResponse {
-  access_token: string;
-  expires_in: number;
-}
-
 export const api = {
   authAnonymous: (device_secret: string | null) =>
-    request<AnonymousAuthResponse>("/auth/anonymous", {
-      method: "POST",
-      body: { device_secret },
-      skipAuth: true,
+    request<AuthToken>("/auth/anonymous", {
+      method: "POST", body: { device_secret }, skipAuth: true,
+    }),
+
+  authRegister: (email: string, password: string) =>
+    request<AuthToken>("/auth/register", {
+      method: "POST", body: { email, password }, skipAuth: true,
+    }),
+
+  authLogin: (email: string, password: string) =>
+    request<AuthToken>("/auth/login", {
+      method: "POST", body: { email, password }, skipAuth: true,
     }),
 
   authTelegram: (init_data: string) =>
-    request<TokenResponse>("/auth/telegram", {
-      method: "POST",
-      body: { init_data },
-      skipAuth: true,
+    request<AuthToken>("/auth/telegram", {
+      method: "POST", body: { init_data }, skipAuth: true,
     }),
 
   getMe: () => request<Me>("/me"),
-
   deleteMe: () => request<void>("/me", { method: "DELETE" }),
 
   postConsent: (kind: "pd_processing" | "marketing", version: string) =>
@@ -55,30 +50,17 @@ export const api = {
   createLinkCode: () => request<LinkCode>("/me/link-codes", { method: "POST" }),
 
   getFormSchema: () => request<FormSchema>("/meta/form-schema"),
-
   getFormOptions: () => request<FormOptions>("/meta/form-options"),
 
   getProfile: () => request<ProfileOut>("/profiles/me"),
-
   putProfile: (body: unknown, ifMatch?: string) =>
     request<ProfileOut>("/profiles/me", { method: "PUT", body, ifMatch }),
 
   listProfileVersions: () => request<ProfileVersionEntry[]>("/profiles/me/versions"),
-
   getProfileVersion: (version: number) =>
     request<ProfileVersionSnapshot>(`/profiles/me/versions/${version}`),
 
-  listOpportunities: (params: {
-    q?: string;
-    programme_kind?: string;
-    country_code?: string;
-    lc_id?: number;
-    family_key?: string;
-    only_open?: boolean;
-    sort?: "new" | "closing" | "chance";
-    limit?: number;
-    offset?: number;
-  }) => {
+  listOpportunities: (params: Record<string, string | number | boolean | undefined>) => {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) {
       if (v !== undefined && v !== "") qs.set(k, String(v));
@@ -88,25 +70,24 @@ export const api = {
 
   getOpportunity: (id: number) => request<OpportunityDetail>(`/opportunities/${id}`),
 
-  createRecommendations: (idempotencyKey: string, body: { mode: "sync" | "async"; limit_per_programme: number; filters?: Record<string, unknown> }) =>
+  createRecommendations: (
+    idempotencyKey: string,
+    body: { mode: "sync" | "async"; limit_per_programme: number; filters?: Record<string, unknown> },
+  ) =>
     request<RecommendationRun>("/recommendations", {
-      method: "POST",
-      body,
-      idempotencyKey,
+      method: "POST", body, idempotencyKey,
     }),
 
   getRecommendation: (runId: string) => request<RecommendationRun>(`/recommendations/${runId}`),
-
   getLatestRecommendation: () => request<RecommendationRun>("/recommendations/latest"),
 
   postFeedback: (body: FeedbackIn) => request<void>("/feedback", { method: "POST", body }),
 
   getSubscription: () => request<SubscriptionPrefs>("/subscriptions/me"),
-
   putSubscription: (body: SubscriptionPrefs) =>
     request<SubscriptionPrefs>("/subscriptions/me", { method: "PUT", body }),
 
-  getHistory: (params: { type?: string; from?: string; to?: string; limit?: number; offset?: number }) => {
+  getHistory: (params: Record<string, string | number | undefined>) => {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) {
       if (v !== undefined && v !== "") qs.set(k, String(v));
@@ -122,7 +103,6 @@ export const api = {
   },
 
   getDashboardPreferences: () => request<DashboardPreferences>("/users/me/dashboard-preferences"),
-
   putDashboardPreferences: (body: DashboardPreferences) =>
     request<DashboardPreferences>("/users/me/dashboard-preferences", { method: "PUT", body }),
 };

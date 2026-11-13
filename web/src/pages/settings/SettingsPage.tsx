@@ -9,26 +9,42 @@ import { DeleteAccountDialog } from "../../features/account/DeleteAccountDialog"
 import { Skeleton } from "../../shared/ui/Skeleton";
 import { ErrorBanner } from "../../shared/ui/ErrorBanner";
 import { Button } from "../../shared/ui/Button";
-import { setAccessToken } from "../../shared/api/client";
 import { ROUTES } from "../../app/routes";
+import { useAuth } from "../../features/auth/AuthContext";
+import { GuestBanner } from "../../widgets/GuestBanner";
+import { EmptyState } from "../../shared/ui/EmptyState";
 
 export function SettingsPage() {
   const nav = useNavigate();
   const qc = useQueryClient();
+  const { isGuest, logout, state } = useAuth();
   const [confirmDelete, setConfirmDelete] = useState(false);
-
   useEffect(() => { document.title = "Настройки — AIESEC Match"; }, []);
 
-  const subQ = useQuery({ queryKey: qk.subscription, queryFn: fetchers.subscription });
+  const subQ = useQuery({ queryKey: qk.subscription, queryFn: fetchers.subscription, enabled: !isGuest });
   const deleteMe = useMutation({
     mutationFn: () => api.deleteMe(),
     onSuccess: () => {
       localStorage.removeItem("device_secret");
-      setAccessToken(null);
+      logout();
       qc.clear();
       nav(ROUTES.welcome);
     },
   });
+
+  if (isGuest) {
+    return (
+      <main className="page">
+        <h1 className="page__title">Настройки</h1>
+        <GuestBanner />
+        <EmptyState
+          title="Создайте аккаунт"
+          description="Уведомления, привязка Telegram и удаление данных доступны только в аккаунте."
+          action={<Button onClick={() => nav(ROUTES.register)}>Создать аккаунт</Button>}
+        />
+      </main>
+    );
+  }
 
   if (subQ.isLoading) return <main className="page"><Skeleton lines={4} /></main>;
   if (subQ.error) return <main className="page"><ErrorBanner error={subQ.error} onRetry={() => subQ.refetch()} /></main>;
@@ -36,6 +52,21 @@ export function SettingsPage() {
   return (
     <main className="page">
       <h1 className="page__title">Настройки</h1>
+
+      {state.me?.email && (
+        <section className="section">
+          <h2 className="section__title">Аккаунт</h2>
+          <div className="ui-card">
+            <div className="row" style={{ justifyContent: "space-between" }}>
+              <span className="muted">Email</span>
+              <strong>{state.me.email}</strong>
+            </div>
+            <div className="row" style={{ marginTop: "var(--space-3)" }}>
+              <Button variant="outline" onClick={() => { logout(); nav(ROUTES.welcome); }}>Выйти</Button>
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="section">
         <h2 className="section__title">Уведомления</h2>

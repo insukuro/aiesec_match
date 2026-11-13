@@ -14,23 +14,27 @@ from .errors import Problem, problem_handler
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from .matcher_client import MatcherClient
+    app.state.matcher = MatcherClient()
     get_settings().openapi_path.parent.mkdir(parents=True, exist_ok=True)
-    yield
-    get_settings().openapi_path.write_text(
-        app.openapi_json() if hasattr(app, "openapi_json") else
-        __import__("json").dumps(app.openapi(), ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    try:
+        yield
+    finally:
+        await app.state.matcher.aclose()
+        get_settings().openapi_path.write_text(
+            __import__("json").dumps(app.openapi(), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
 
-app = FastAPI(title="aiesec_match backend", version="1.0", lifespan=lifespan)
+app = FastAPI(title="aiesec_match backend", version="1.1", lifespan=lifespan)
 
 
 @app.middleware("http")
 async def request_context(request: Request, call_next):
     request.state.request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
-    body = await request.body()
-    if len(body) > get_settings().request_body_max_bytes:
+    cl = request.headers.get("content-length")
+    if cl is not None and int(cl) > get_settings().request_body_max_bytes:
         return JSONResponse({"detail": "request body too large"}, status_code=413)
     response = await call_next(request)
     response.headers["X-Request-ID"] = request.state.request_id

@@ -1,8 +1,18 @@
 from datetime import date, datetime
 from typing import Any, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 ProgrammeKind = Literal["talent", "teacher", "volunteer"]
+
+
+class RegisterIn(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+
+
+class LoginIn(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=128)
 
 
 class AnonymousAuthIn(BaseModel):
@@ -15,17 +25,20 @@ class AnonymousAuthOut(BaseModel):
     device_secret: str | None = None
 
 
+class TokenOut(BaseModel):
+    access_token: str
+    expires_in: int
+    is_anonymous: bool = False
+
+
 class TelegramAuthIn(BaseModel):
     init_data: str
 
 
-class TokenOut(BaseModel):
-    access_token: str
-    expires_in: int
-
-
 class MeOut(BaseModel):
     user_id: str
+    is_anonymous: bool
+    email: str | None = None
     has_profile: bool
     profile_version: int | None
     identities: list[dict]
@@ -68,6 +81,17 @@ class ProfileOut(ProfileIn):
     age_years: int | None
     completeness: float
     updated_at: datetime
+
+
+class ProfileVersionEntry(BaseModel):
+    version: int
+    created_at: datetime
+    completeness: float
+
+
+class ProfileVersionSnapshot(ProfileOut):
+    version: int
+    created_at: datetime
 
 
 class OpportunityCard(BaseModel):

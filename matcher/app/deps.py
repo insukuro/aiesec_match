@@ -5,6 +5,9 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from app.config import get_settings
+from app.repo.catalog_reader import DbCatalogReader, FakeCatalogReader
+
 DATA_DIR = Path(__file__).parent / "data"
 FILE_PREFIX = "_lists_"
 
@@ -17,11 +20,8 @@ def load_dictionaries() -> dict[str, list[dict[str, Any]]]:
         for path in sorted(DATA_DIR.glob(f"{FILE_PREFIX}*.json"))
     }
 
-from functools import lru_cache
-from app.config import get_settings
-from app.repo.catalog_reader import DbCatalogReader, FakeCatalogReader
 
-@lru_cache
+@lru_cache(maxsize=1)
 def get_catalog_reader():
     s = get_settings()
     if s.catalog_source == "db":

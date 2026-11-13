@@ -7,6 +7,7 @@ import { NumberStepper } from "../../shared/ui/NumberStepper";
 import { DateField } from "../../shared/ui/DateField";
 import { TextArea } from "../../shared/ui/TextArea";
 import { TextField } from "../../shared/ui/TextField";
+import { ProgrammeCards } from "./ProgrammeCards";
 
 export interface FieldRendererProps {
   id: string;
@@ -27,7 +28,7 @@ export function FieldRenderer({ id, field, value, options, onChange }: FieldRend
       return (
         <DateField
           value={value ? String(value) : null}
-          onChange={(v) => onChange(v)}
+          onChange={onChange}
           max={new Date().toISOString().slice(0, 10)}
         />
       );
@@ -52,17 +53,42 @@ export function FieldRenderer({ id, field, value, options, onChange }: FieldRend
       );
 
     case "text":
-      return <TextField id={id} value={value == null ? null : String(value)} onChange={onChange} maxLength={field.validation?.max_length} />;
+      return (
+        <TextField
+          id={id}
+          value={value == null ? null : String(value)}
+          onChange={(v) => onChange(v)}
+          maxLength={field.validation?.max_length}
+        />
+      );
 
     case "textarea":
-      return <TextArea value={String(value ?? "")} maxLength={field.validation?.max_length ?? 2000} onChange={onChange} />;
+      return (
+        <TextArea
+          value={String(value ?? "")}
+          maxLength={field.validation?.max_length ?? 2000}
+          onChange={onChange}
+        />
+      );
 
     case "single":
       if (widget === "segmented") {
-        return <Segmented options={options} value={value == null ? null : String(value)} onChange={onChange} />;
+        return (
+          <Segmented
+            options={options}
+            value={value == null ? null : String(value)}
+            onChange={onChange}
+          />
+        );
       }
       if (widget === "select") {
-        return <Select options={options} value={value == null ? null : String(value)} onChange={onChange} />;
+        return (
+          <Select
+            options={options}
+            value={value == null ? null : String(value)}
+            onChange={onChange}
+          />
+        );
       }
       return (
         <ChipGroup
@@ -74,6 +100,15 @@ export function FieldRenderer({ id, field, value, options, onChange }: FieldRend
       );
 
     case "multi":
+      if (widget === "cards") {
+        return (
+          <ProgrammeCards
+            options={options}
+            value={Array.isArray(value) ? (value as string[]) : []}
+            onChange={(arr: unknown) => onChange(arr)}
+          />
+        );
+      }
       return (
         <ChipGroup
           options={options}

@@ -13,6 +13,8 @@ export interface Problem {
 
 export interface Me {
   user_id: string;
+  is_anonymous: boolean;
+  email: string | null;
   has_profile: boolean;
   profile_version: number | null;
   identities: Array<{ provider: string; external_id: string | null }>;
@@ -180,15 +182,8 @@ export interface ProfileVersionSnapshot extends ProfileOut {
 }
 
 export type HistoryType =
-  | "profile_created"
-  | "profile_updated"
-  | "run_started"
-  | "run_finished"
-  | "opportunity_viewed"
-  | "signal_liked"
-  | "signal_disliked"
-  | "signal_hidden"
-  | "signal_applied";
+  | "profile_created" | "profile_updated" | "run_started" | "run_finished"
+  | "opportunity_viewed" | "signal_liked" | "signal_disliked" | "signal_hidden" | "signal_applied";
 
 export interface HistoryEvent {
   event_id: string;
@@ -201,11 +196,6 @@ export interface HistoryEvent {
 }
 
 export type AnalyticsPeriod = "7d" | "30d" | "90d" | "all";
-
-export interface AnalyticsSeriesPoint {
-  bucket: string;
-  count: number;
-}
 
 export interface AnalyticsResponse {
   profile_completeness: { percent: number; filled: number; total: number };
@@ -223,11 +213,8 @@ export interface DashboardPreferences {
 }
 
 export const CHART_IDS = [
-  "profile_completeness",
-  "programme_distribution",
-  "interests_distribution",
-  "activity_series",
-  "recommendation_statistics",
+  "profile_completeness", "programme_distribution", "interests_distribution",
+  "activity_series", "recommendation_statistics",
 ] as const;
 export type ChartId = (typeof CHART_IDS)[number];
 
@@ -237,3 +224,10 @@ export const DEFAULT_DASHBOARD: DashboardPreferences = {
   period: "30d",
   chart_types: {},
 };
+
+export interface AuthToken {
+  access_token: string;
+  expires_in: number;
+  is_anonymous: boolean;
+  device_secret?: string | null;
+}

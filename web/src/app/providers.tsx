@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useMemo, useState, type PropsWithChildren } from "react";
 import { ToastProvider } from "../shared/ui/Toast";
+import { AuthProvider } from "../features/auth/AuthContext";
 
 export function AppProviders({ children }: PropsWithChildren) {
   const [client] = useState(() =>
@@ -21,7 +22,9 @@ export function AppProviders({ children }: PropsWithChildren) {
   const value = useMemo(() => client, [client]);
   return (
     <QueryClientProvider client={value}>
-      <ToastProvider>{children}</ToastProvider>
+      <ToastProvider>
+        <AuthProvider>{children}</AuthProvider>
+      </ToastProvider>
     </QueryClientProvider>
   );
 }

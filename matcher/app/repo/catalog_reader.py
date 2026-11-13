@@ -3,6 +3,7 @@ from datetime import date
 from typing import Dict, List, Optional
 
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine
 
 from app.domain.models import Opportunity
 
@@ -64,7 +65,15 @@ class DbCatalogReader:
     """Чтение из вью catalog.* под ролью matcher_writer (только SELECT)."""
 
     def __init__(self, database_url: str):
-        self._engine = create_engine(database_url, pool_size=5, pool_pre_ping=True)
+        # Драйвер должен совпадать с тем, что реально установлен в образе
+        # (psycopg[binary] в matcher.txt). SQLAlchemy 2.x по умолчанию выбирает psycopg.
+        if database_url.startswith("postgresql+asyncpg://"):
+            database_url = database_url.replace("postgresql+asyncpg://", "postgresql+psycopg://", 1)
+        elif database_url.startswith("postgresql://"):
+            database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+        self._engine: Engine = create_engine(
+            database_url, pool_size=5, max_overflow=2, pool_pre_ping=True, future=True,
+        )
 
     def list_open(self, programme_kind: str) -> List[Opportunity]:
         with self._engine.connect() as conn:

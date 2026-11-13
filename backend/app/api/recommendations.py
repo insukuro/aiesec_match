@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Header, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..auth import current_user
+from ..auth import require_registered
 from ..catalog import current_watermark, fetch_cards, fetch_requirements
 from ..completeness import missing_for_match
 from ..config import get_settings
@@ -18,24 +18,32 @@ router = APIRouter(prefix="/recommendations", tags=["recommendations"])
 
 
 def _profile_hash(user_id: uuid.UUID) -> str:
-    return hmac.new(get_settings().profile_hmac_secret.encode(), str(user_id).encode(),
-                    hashlib.sha256).hexdigest()[:32]
+    return hmac.new(
+        get_settings().profile_hmac_secret.encode(), str(user_id).encode(), hashlib.sha256
+    ).hexdigest()[:32]
 
 
 def _label(score: float) -> str:
     return "excellent" if score >= 0.8 else "good" if score >= 0.6 else "fair"
 
 
+def _programme_prior(value) -> list[str]:
+    if not value:
+        return []
+    if isinstance(value, dict):
+        return list(value.keys())
+    return list(value)
+
+
 @router.post("")
 async def create_run(
     body: RecommendationRunIn,
     idempotency_key: str = Header(alias="Idempotency-Key", min_length=8),
-    user: User = Depends(current_user),
+    user: User = Depends(require_registered),
     session: AsyncSession = Depends(get_session),
     matcher: MatcherClient = Depends(get_matcher),
     response: Response = None,
 ):
-    # 1) идемпотентность
     existing = (await session.execute(
         select(RecommendationRun).where(
             RecommendationRun.user_id == user.user_id,
@@ -45,7 +53,6 @@ async def create_run(
     if existing:
         return await _assemble(session, existing)
 
-    # 2) текущая версия профиля и минимум
     p = await session.get(Profile, user.user_id)
     if p is None:
         raise ProfileNotFound()
@@ -54,32 +61,44 @@ async def create_run(
     if miss:
         raise ProfileIncomplete(errors=[{"loc": ["profile", m]} for m in miss])
 
-    # 3) run + вызов matcher
     run = RecommendationRun(
         user_id=user.user_id, profile_version=p.current_version,
         filters=body.filters or {}, idempotency_key=idempotency_key,
         state="running", model_versions={}, created_at=datetime.now(timezone.utc),
     )
-    session.add(run); await session.flush()
+    session.add(run)
+    await session.flush()
 
-    snapshot = {k: v.body.get(k) for k in (
-        "programmes","english_level","study","work_experience","spheres","activities",
-        "desired_countries","duration","start_window","financial","nationality",
-    )}
+    snapshot = {
+        k: v.body.get(k) for k in (
+            "programmes", "english_level", "study", "work_experience", "spheres", "activities",
+            "desired_countries", "duration", "start_window", "financial", "nationality",
+        )
+        if v.body.get(k) is not None
+    }
+
+    f = body.filters or {}
+    payload = {
+        "request_id": str(run.run_id),
+        "profile_id": _profile_hash(user.user_id),
+        "profile": snapshot,
+        "filters": {
+            "programme_kinds": f.get("programme_kinds", []),
+            "country_codes": f.get("country_codes", []),
+            "exclude_opportunity_ids": f.get("exclude_opportunity_ids", []),
+        },
+        "limit_per_programme": body.limit_per_programme,
+        "explain": True,
+    }
     try:
-        result = await matcher.match({
-            "profile_id": _profile_hash(user.user_id),
-            "profile": snapshot,
-            "filters": body.filters or {},
-            "limit_per_programme": body.limit_per_programme,
-        })
+        result = await matcher.match(payload)
     except Exception as e:
-        run.state = "failed"; run.error = str(e)
+        run.state = "failed"
+        run.error = str(e)
         run.finished_at = datetime.now(timezone.utc)
         await session.commit()
         raise
 
-    # 4) гидрация + сохранение items
     watermark = await current_watermark(session)
     groups = result.get("groups", [])
     all_ids = [it["opportunity_id"] for g in groups for it in g["items"]]
@@ -91,13 +110,16 @@ async def create_run(
                 continue
             session.add(RecommendationItem(
                 run_id=run.run_id, programme_kind=g["programme_kind"], rank=rank,
-                opportunity_id=it["opportunity_id"], family_key=cards[it["opportunity_id"]]["family_key"],
-                score=it["score"], breakdown=it.get("breakdown", {}), reasons=it.get("reasons", []),
+                opportunity_id=it["opportunity_id"],
+                family_key=cards[it["opportunity_id"]]["family_key"],
+                score=it["score"], breakdown=it.get("breakdown", {}),
+                reasons=it.get("reasons", []),
             ))
 
-    run.state = "succeeded"; run.finished_at = datetime.now(timezone.utc)
+    run.state = "succeeded"
+    run.finished_at = datetime.now(timezone.utc)
     run.catalog_watermark = watermark
-    run.programme_prior = result.get("programme_prior", [])
+    run.programme_prior = _programme_prior(result.get("programme_prior"))
     run.total_candidates = sum(g.get("total_candidates", 0) for g in groups)
     await session.commit()
 
@@ -129,7 +151,7 @@ async def _assemble(session: AsyncSession, run: RecommendationRun) -> dict:
             "opportunity": _card(c, reqs.get(it.opportunity_id, [])),
             "reasons": it.reasons,
         })
-    prior = run.programme_prior or list(groups.keys())
+    prior = _programme_prior(run.programme_prior) or list(groups.keys())
     ordered = [groups[k] for k in prior if k in groups]
     return {
         "run_id": str(run.run_id), "state": run.state,
@@ -165,7 +187,8 @@ def _card(c: dict, reqs: list[dict]) -> dict:
 
 
 @router.get("/latest")
-async def latest(user: User = Depends(current_user), session: AsyncSession = Depends(get_session)):
+async def latest(user: User = Depends(require_registered),
+                 session: AsyncSession = Depends(get_session)):
     run = (await session.execute(
         select(RecommendationRun).where(
             RecommendationRun.user_id == user.user_id,
@@ -178,7 +201,7 @@ async def latest(user: User = Depends(current_user), session: AsyncSession = Dep
 
 
 @router.get("/{run_id}")
-async def get_run(run_id: uuid.UUID, user: User = Depends(current_user),
+async def get_run(run_id: uuid.UUID, user: User = Depends(require_registered),
                   session: AsyncSession = Depends(get_session)):
     run = await session.get(RecommendationRun, run_id)
     if run is None or run.user_id != user.user_id:

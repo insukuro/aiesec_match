@@ -6,8 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import current_user
 from ..db import get_session
-from ..errors import Unauthorized
-from ..models import Consent, DeviceSecret, Identity, LinkCode, Profile, User
+from ..models import Consent, DeviceSecret, Identity, LinkCode, PasswordCredential, Profile, User
 from ..schemas import ConsentIn, MeOut
 
 router = APIRouter(prefix="/me", tags=["me"])
@@ -18,8 +17,15 @@ async def get_me(user: User = Depends(current_user), session: AsyncSession = Dep
     profile = await session.get(Profile, user.user_id)
     idents = (await session.execute(select(Identity).where(Identity.user_id == user.user_id))).scalars().all()
     consents = (await session.execute(select(Consent).where(Consent.user_id == user.user_id))).scalars().all()
+    email: str | None = None
+    if not user.is_anonymous:
+        cred = await session.get(PasswordCredential, user.user_id)
+        if cred is not None:
+            email = cred.email
     return MeOut(
         user_id=str(user.user_id),
+        is_anonymous=user.is_anonymous,
+        email=email,
         has_profile=profile is not None,
         profile_version=profile.current_version if profile else None,
         identities=[{"provider": i.provider, "external_id": i.external_id} for i in idents],
@@ -29,7 +35,6 @@ async def get_me(user: User = Depends(current_user), session: AsyncSession = Dep
 
 @router.delete("", status_code=204)
 async def delete_me(user: User = Depends(current_user), session: AsyncSession = Depends(get_session)):
-    # FOR UPDATE users + каскад (ТЗ-DB §7)
     u = (await session.execute(
         select(User).where(User.user_id == user.user_id).with_for_update()
     )).scalar_one()

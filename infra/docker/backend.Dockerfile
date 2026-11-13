@@ -20,4 +20,13 @@ EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=5s --retries=5 --start-period=20s \
   CMD curl -fsS http://localhost:8000/api/v1/health || exit 1
 
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"]
+# Ждём БД, накатываем миграции, проверяем, что схема core существует.
+CMD ["sh", "-c", "\
+  python -c 'import time, psycopg; \
+for _ in range(30): \
+    try: \
+        psycopg.connect(\"host=postgres dbname=aiesec_match user=backend_writer password=backend\").close(); break \
+    except Exception as e: \
+        print(\"waiting for postgres:\", e); time.sleep(1)' && \
+  alembic upgrade head && \
+  exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"]

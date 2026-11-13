@@ -84,7 +84,7 @@ migrate-parser:
 
 # -------------------- dev --------------------
 dev-up: ensure-env        ## dev-стек: postgres, db-init, backend, parser (web — локально)
-	$(COMPOSE_DEV) up -d --build postgres db-init backend parser
+	$(COMPOSE_DEV) up -d --build postgres db-init backend parser matcher
 
 dev-down:                 ## остановить dev-стек (volume сохраняется)
 	$(COMPOSE_DEV) down

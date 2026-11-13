@@ -3,6 +3,13 @@ import type { FormStep } from "../../shared/api/types";
 import { evaluate } from "../../shared/lib/condition";
 import { getPath, setPath, stripEmpty } from "../../shared/lib/get";
 
+function convertDuration(value: unknown): { min_weeks?: number; max_weeks?: number } | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const nums = value.map((v) => Number(v)).filter((n) => Number.isFinite(n));
+  if (nums.length === 0) return null;
+  return { min_weeks: Math.min(...nums), max_weeks: Math.max(...nums) };
+}
+
 export function useFormState(step: FormStep, initial: Record<string, unknown>) {
   const [values, setValues] = useState<Record<string, unknown>>(initial);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -33,7 +40,13 @@ export function useFormState(step: FormStep, initial: Record<string, unknown>) {
     return Object.keys(next).length === 0;
   }, [visibleFields, values]);
 
-  const sanitized = useMemo(() => stripEmpty(values), [values]);
+  const sanitized = useMemo(() => {
+    const raw = stripEmpty(values) as Record<string, unknown>;
+    if (Array.isArray(raw.duration)) {
+      raw.duration = convertDuration(raw.duration);
+    }
+    return raw;
+  }, [values]);
 
   return { values, errors, visibleFields, update, validate, sanitized };
 }

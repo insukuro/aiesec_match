@@ -9,17 +9,46 @@ import { Skeleton } from "../../shared/ui/Skeleton";
 import { ErrorBanner } from "../../shared/ui/ErrorBanner";
 import { Button } from "../../shared/ui/Button";
 import { ROUTES } from "../../app/routes";
+import { useAuth } from "../../features/auth/AuthContext";
+import { GuestBanner } from "../../widgets/GuestBanner";
+import { EmptyState } from "../../shared/ui/EmptyState";
 
 export function ProfilePage() {
   const nav = useNavigate();
+  const { isGuest } = useAuth();
   useEffect(() => { document.title = "Профиль — AIESEC Match"; }, []);
-  const q = useQuery({ queryKey: qk.profile, queryFn: fetchers.profile, retry: 0 });
+  const q = useQuery({ queryKey: qk.profile, queryFn: fetchers.profile, retry: 0, enabled: !isGuest });
+
+  if (isGuest) {
+    return (
+      <main className="page">
+        <h1 className="page__title">Профиль</h1>
+        <GuestBanner />
+        <EmptyState
+          title="Создайте аккаунт"
+          description="Профиль доступен только в аккаунте."
+          action={<Button onClick={() => nav(ROUTES.register)}>Создать аккаунт</Button>}
+        />
+      </main>
+    );
+  }
 
   if (q.isLoading) return <main className="page"><Skeleton lines={8} /></main>;
   if (q.error) return <main className="page"><ErrorBanner error={q.error} onRetry={() => q.refetch()} /></main>;
-  if (!q.data) return null;
-  const p = q.data;
+  if (!q.data) {
+    return (
+      <main className="page">
+        <h1 className="page__title">Профиль</h1>
+        <EmptyState
+          title="Профиль не заполнен"
+          description="Пройдите короткую анкету — это займёт пару минут."
+          action={<Button onClick={() => nav(ROUTES.onboarding(0))}>Заполнить</Button>}
+        />
+      </main>
+    );
+  }
 
+  const p = q.data;
   return (
     <main className="page">
       <h1 className="page__title">Профиль</h1>

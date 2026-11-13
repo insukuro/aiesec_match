@@ -1,7 +1,9 @@
 version: "1"
+
 steps:
   - id: consent
     title: "Согласие"
+    description: "Прежде чем начать, подтвердите согласие на обработку персональных данных."
     fields:
       - id: pd_processing
         kind: boolean
@@ -10,11 +12,13 @@ steps:
         maps_to: consent.pd_processing
       - id: marketing
         kind: boolean
-        label: "Согласен(на) на маркетинговые сообщения"
+        label: "Хочу получать новости и предложения AIESEC"
         required: false
         maps_to: consent.marketing
+
   - id: programmes
-    title: "Что ищешь"
+    title: "Что ищешь?"
+    description: "Можно выбрать несколько направлений или доверить выбор алгоритму."
     fields:
       - id: programmes
         kind: multi
@@ -22,14 +26,24 @@ steps:
         options_source: programmes
         maps_to: programmes
         ui: { widget: cards }
+
   - id: about
-    title: "О тебе"
+    title: "Немного о тебе"
     fields:
       - id: birth_date
         kind: date
         label: "Дата рождения"
+        help: "Нужна для проверки возрастных ограничений (16–35 лет)."
         required: true
         maps_to: birth_date
+        validation: { pattern: "^\\d{4}-\\d{2}-\\d{2}$" }
+
+      - id: city
+        kind: text
+        label: "Город"
+        maps_to: city
+        validation: { max_length: 100 }
+
       - id: study_status
         kind: single
         label: "Статус обучения"
@@ -37,13 +51,26 @@ steps:
         options_source: study_status
         maps_to: study.status
         ui: { widget: segmented }
+
       - id: study_course
         kind: number
         label: "Курс"
         validation: { min: 1, max: 6 }
-        show_if: { any: [{ field: study_status, op: in, value: ["bachelor", "master"] }] }
+        show_if:
+          any:
+            - { field: study_status, op: in, value: ["bachelor", "master"] }
         maps_to: study.course
         ui: { widget: stepper }
+
+      - id: study_specialty_text
+        kind: text
+        label: "Специальность"
+        validation: { max_length: 200 }
+        show_if:
+          any:
+            - { field: study_status, op: in, value: ["bachelor", "master", "postgraduate"] }
+        maps_to: study.specialty_text
+
       - id: english_level
         kind: single
         label: "Уровень английского"
@@ -51,35 +78,117 @@ steps:
         options_source: english_level
         maps_to: english_level
         ui: { widget: chips }
+
+      - id: other_languages
+        kind: multi
+        label: "Другие языки"
+        options_source: other_languages
+        maps_to: other_languages
+
+      - id: abroad_experience
+        kind: boolean
+        label: "Был(а) за границей (учёба, работа, волонтёрство)"
+        maps_to: abroad_experience
+
   - id: interests
-    title: "Интересы"
+    title: "Интересы и опыт"
     fields:
       - id: spheres
         kind: multi
-        label: "Сферы"
+        label: "Сферы, которые тебе интересны"
         options_source: spheres
-        show_if: { any: [
-          { field: programmes, op: in, value: ["talent","teacher"] },
-          { field: programmes, op: empty }
-        ] }
+        show_if:
+          any:
+            - { field: programmes, op: in, value: ["talent", "teacher"] }
+            - { field: programmes, op: empty }
         maps_to: spheres
+
+      - id: work_experience
+        kind: single
+        label: "Опыт работы"
+        options_source: work_experience
+        show_if:
+          any:
+            - { field: programmes, op: in, value: ["talent", "teacher"] }
+            - { field: programmes, op: empty }
+        maps_to: work_experience
+        ui: { widget: segmented }
+
       - id: activities
         kind: multi
         label: "Чем хочешь заниматься"
         options_source: activities
-        show_if: { any: [
-          { field: programmes, op: in, value: ["volunteer"] },
-          { field: programmes, op: empty }
-        ] }
+        show_if:
+          any:
+            - { field: programmes, op: in, value: ["volunteer"] }
+            - { field: programmes, op: empty }
         maps_to: activities
+
+      - id: experience_text
+        kind: textarea
+        label: "Релевантный опыт"
+        help: "Коротко о проектах, стажировках, волонтёрстве."
+        validation: { max_length: 2000 }
+        maps_to: experience_text
+
   - id: conditions
     title: "Условия"
     fields:
       - id: duration
         kind: multi
-        label: "Срок"
+        label: "Желаемая продолжительность"
         options_source: durations
         maps_to: duration
+
+      - id: start_window
+        kind: single
+        label: "Когда готов(а) начать"
+        options_source: start_window
+        maps_to: start_window
+        ui: { widget: segmented }
+
+      - id: desired_countries
+        kind: multi
+        label: "Страны"
+        help: "Оставьте пустым, если готовы рассмотреть любые."
+        options_source: countries
+        maps_to: desired_countries
+        ui: { widget: chips }
+
+      - id: financial_willing
+        kind: boolean
+        label: "Готов(а) оплатить взнос за участие"
+        maps_to: financial.willing_to_pay
+
+      - id: financial_budget
+        kind: number
+        label: "Максимальный бюджет, €"
+        validation: { min: 0, max: 10000 }
+        show_if:
+          any:
+            - { field: financial_willing, op: eq, value: true }
+        maps_to: financial.max_budget_eur
+
+      - id: financial_stipend
+        kind: boolean
+        label: "Нужна стипендия"
+        show_if:
+          any:
+            - { field: programmes, op: in, value: ["talent", "teacher"] }
+            - { field: programmes, op: empty }
+        maps_to: financial.needs_stipend
+
+  - id: motivation
+    title: "Пара слов о мотивации"
+    fields:
+      - id: motivation_text
+        kind: textarea
+        label: "Почему хочешь поехать?"
+        help: "Это увидят только алгоритм и вы сами — текст не попадает в логи."
+        validation: { max_length: 1000 }
+        maps_to: motivation_text
+
   - id: final
     title: "Проверка"
+    description: "Проверьте ответы перед тем, как запустить подбор."
     fields: []

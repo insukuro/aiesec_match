@@ -17,6 +17,7 @@ export interface FormRendererProps {
 export function FormRenderer({ step, options, initialValues, onNext, onBack, onDirty }: FormRendererProps) {
   const { values, errors, visibleFields, update, validate, sanitized } = useFormState(step, initialValues);
   const [busy, setBusy] = useState(false);
+  const hasRequired = visibleFields.some((f) => f.required);
 
   const submit = async () => {
     if (!validate()) return;
@@ -28,11 +29,21 @@ export function FormRenderer({ step, options, initialValues, onNext, onBack, onD
     }
   };
 
+  const skip = async () => {
+    setBusy(true);
+    try {
+      await onNext(sanitized);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <form
-      className="stack"
+      className="form"
       onSubmit={(e) => { e.preventDefault(); void submit(); }}
       onChange={() => onDirty?.()}
+      noValidate
     >
       <h2 className="form__step-title">{step.title}</h2>
       {step.description && <p className="muted">{step.description}</p>}
@@ -41,7 +52,7 @@ export function FormRenderer({ step, options, initialValues, onNext, onBack, onD
         <div className="field" key={f.id}>
           <label className="field__label" htmlFor={f.id}>
             {f.label}
-            {f.required && <span aria-hidden> *</span>}
+            {f.required && <span className="req" aria-hidden> *</span>}
           </label>
           <FieldRenderer
             id={f.id}
@@ -58,6 +69,11 @@ export function FormRenderer({ step, options, initialValues, onNext, onBack, onD
       <div className="form__actions">
         {onBack ? <Button variant="outline" onClick={onBack} disabled={busy}>Назад</Button> : <span />}
         <Button type="submit" disabled={busy}>{busy ? "Сохраняем…" : "Далее"}</Button>
+        {!hasRequired && (
+          <Button variant="text" onClick={() => void skip()} disabled={busy}>
+            Пропустить
+          </Button>
+        )}
       </div>
     </form>
   );

@@ -6,7 +6,7 @@ from typing import Any
 
 from sqlalchemy import (
     CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, Numeric,
-    String, Text, UniqueConstraint, func, text, MetaData
+    String, Text, UniqueConstraint, func, text, MetaData, Boolean
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -23,6 +23,7 @@ def _uuid() -> uuid.UUID:
 class User(Base):
     __tablename__ = "users"
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    is_anonymous: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -31,9 +32,20 @@ class Identity(Base):
     __tablename__ = "identities"
     identity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.user_id", ondelete="CASCADE"), index=True)
-    provider: Mapped[str] = mapped_column(String(20))          # anonymous | telegram
+    provider: Mapped[str] = mapped_column(String(20))
     external_id: Mapped[str | None] = mapped_column(String(120))
     __table_args__ = (UniqueConstraint("provider", "external_id"),)
+
+
+class PasswordCredential(Base):
+    __tablename__ = "password_credentials"
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.user_id", ondelete="CASCADE"), primary_key=True
+    )
+    email: Mapped[str] = mapped_column(String(254), nullable=False, unique=True)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class DeviceSecret(Base):

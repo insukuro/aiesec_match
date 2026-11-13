@@ -30,6 +30,7 @@ aiesec_match
 │  │  │  ├─ profiles.py
 │  │  │  ├─ recommendations.py
 │  │  │  └─ subscriptions.py
+│  │  ├─ auth
 │  │  ├─ auth.py
 │  │  ├─ catalog.py
 │  │  ├─ completeness.py
@@ -50,10 +51,14 @@ aiesec_match
 │  │  ├─ env.py
 │  │  ├─ script.py.mako
 │  │  └─ versions
-│  │     └─ 0001_core.py
+│  │     ├─ 0001_core.py
+│  │     ├─ 0002_auth.py
+│  │     └─ __pycache__
+│  │        ├─ 0001_core.cpython-312.pyc
+│  │        └─ 71ae476ee49e_.cpython-312.pyc
+│  ├─ openapi
+│  │  └─ backend.v1.json
 │  ├─ pytest.ini
-│  ├─ requirements-dev.txt
-│  ├─ requirements.txt
 │  └─ tests
 │     ├─ conftest.py
 │     └─ test_concurrency.py
@@ -66,15 +71,62 @@ aiesec_match
 ├─ infra
 │  ├─ docker
 │  │  ├─ backend.Dockerfile
-│  │  ├─ backend.dev.Dockerfile
+│  │  ├─ matcher.Dockerfile
 │  │  ├─ parser.Dockerfile
-│  │  ├─ parser.dev.Dockerfile
 │  │  ├─ web.Dockerfile
 │  │  └─ web.nginx.conf
-│  └─ postgres
-│     ├─ bootstrap.sql
-│     └─ init
-│        └─ 01-databases.sh
+│  ├─ postgres
+│  │  ├─ bootstrap.sql
+│  │  └─ init
+│  │     └─ 01-databases.sh
+│  └─ requirements
+│     ├─ README.md
+│     ├─ backend-dev.txt
+│     ├─ backend.txt
+│     ├─ matcher-dev.txt
+│     ├─ matcher.txt
+│     ├─ parser-dev.txt
+│     └─ parser.txt
+├─ matcher
+│  ├─ app
+│  │  ├─ __init__.py
+│  │  ├─ config.py
+│  │  ├─ data
+│  │  │  ├─ _lists_backgrounds.json
+│  │  │  ├─ _lists_industries.json
+│  │  │  ├─ _lists_issues.json
+│  │  │  ├─ _lists_languages.json
+│  │  │  ├─ _lists_skills.json
+│  │  │  └─ fake_catalog.json
+│  │  ├─ deps.py
+│  │  ├─ domain
+│  │  │  ├─ __init__.py
+│  │  │  ├─ features.py
+│  │  │  ├─ filters.py
+│  │  │  ├─ models.py
+│  │  │  ├─ profile.py
+│  │  │  ├─ scoring.py
+│  │  │  └─ taxonomy.yaml
+│  │  ├─ main.py
+│  │  ├─ repo
+│  │  │  ├─ __init__.py
+│  │  │  └─ catalog_reader.py
+│  │  ├─ routers
+│  │  │  ├─ __init__.py
+│  │  │  ├─ dictionaries.py
+│  │  │  ├─ health.py
+│  │  │  └─ match.py
+│  │  ├─ schemas.py
+│  │  └─ weights.yaml
+│  ├─ pytest.ini
+│  └─ tests
+│     ├─ __init__.py
+│     ├─ conftest.py
+│     ├─ factories.py
+│     ├─ test_api.py
+│     ├─ test_features.py
+│     ├─ test_filters.py
+│     └─ test_scoring.py
 ├─ parser
 │  ├─ .coveragerc
 │  ├─ alembic.ini
@@ -109,10 +161,9 @@ aiesec_match
 │  │  ├─ env.py
 │  │  ├─ script.py.mako
 │  │  └─ versions
-│  │     └─ 0001_initial.py
+│  │     ├─ 0001_initial.py
+│  │     └─ 0002_catalog_v1.py
 │  ├─ pytest.ini
-│  ├─ requirements-dev.txt
-│  ├─ requirements.txt
 │  ├─ targets.json
 │  └─ tests
 │     ├─ __init__.py
