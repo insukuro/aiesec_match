@@ -8,6 +8,7 @@ import { DateField } from "../../shared/ui/DateField";
 import { TextArea } from "../../shared/ui/TextArea";
 import { TextField } from "../../shared/ui/TextField";
 import { ProgrammeCards } from "./ProgrammeCards";
+import { maxBirthDate, minBirthDate, validateAge } from "../../shared/lib/age";
 
 export interface FieldRendererProps {
   id: string;
@@ -24,7 +25,23 @@ export function FieldRenderer({ id, field, value, options, onChange }: FieldRend
     case "boolean":
       return <Toggle value={Boolean(value)} onChange={onChange} />;
 
-    case "date":
+    case "date": {
+      const isBirth = field.maps_to === "birth_date" || field.id === "birth_date";
+      if (isBirth) {
+        return (
+          <>
+            <DateField
+              value={value ? String(value) : null}
+              onChange={onChange}
+              min={minBirthDate()}
+              max={maxBirthDate()}
+            />
+            {value ? validateAge(String(value)) && (
+              <span className="field__error">{validateAge(String(value))}</span>
+            ) : null}
+          </>
+        );
+      }
       return (
         <DateField
           value={value ? String(value) : null}
@@ -32,6 +49,7 @@ export function FieldRenderer({ id, field, value, options, onChange }: FieldRend
           max={new Date().toISOString().slice(0, 10)}
         />
       );
+    }
 
     case "number":
       return widget === "stepper" ? (

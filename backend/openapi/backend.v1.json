@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "aiesec_match backend",
-    "version": "1.1"
+    "version": "1.2"
   },
   "paths": {
     "/api/v1/auth/anonymous": {

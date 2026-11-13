@@ -118,6 +118,15 @@ class MatcherRejected(Problem):
         self.status_code = status_code
 
 
+class Validation(Problem):
+    type = "/problems/validation"
+    title = "Validation error"
+    status_code = 422
+
+    def __init__(self, errors: list[dict] | None = None, detail: str = ""):
+        super().__init__(detail=detail, errors=errors or [])
+        
+        
 async def problem_handler(request: Request, exc: Problem) -> JSONResponse:
     body = {
         "type": exc.type,

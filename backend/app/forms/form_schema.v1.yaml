@@ -33,10 +33,10 @@ steps:
       - id: birth_date
         kind: date
         label: "Дата рождения"
-        help: "Нужна для проверки возрастных ограничений (16–35 лет)."
+        help: "Нужна для проверки возрастных ограничений (16–34 года)."
         required: true
         maps_to: birth_date
-        validation: { pattern: "^\\d{4}-\\d{2}-\\d{2}$" }
+        validation: { min_age: 16, max_age: 34, pattern: "^\\d{4}-\\d{2}-\\d{2}$" }
 
       - id: city
         kind: text

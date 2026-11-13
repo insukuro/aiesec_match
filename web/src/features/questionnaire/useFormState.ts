@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import type { FormStep } from "../../shared/api/types";
 import { evaluate } from "../../shared/lib/condition";
 import { getPath, setPath, stripEmpty } from "../../shared/lib/get";
+import { validateAge } from "../../shared/lib/age";
 
 function convertDuration(value: unknown): { min_weeks?: number; max_weeks?: number } | null {
   if (!Array.isArray(value) || value.length === 0) return null;
@@ -35,6 +36,10 @@ export function useFormState(step: FormStep, initial: Record<string, unknown>) {
       const num = f.validation;
       if (num?.min != null && typeof v === "number" && v < num.min) next[f.id] = `Минимум ${num.min}`;
       if (num?.max != null && typeof v === "number" && v > num.max) next[f.id] = `Максимум ${num.max}`;
+      if (f.kind === "date" && (f.maps_to === "birth_date" || f.id === "birth_date") && typeof v === "string") {
+        const ageErr = validateAge(v);
+        if (ageErr) next[f.id] = ageErr;
+      }
     }
     setErrors(next);
     return Object.keys(next).length === 0;

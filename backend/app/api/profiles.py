@@ -3,21 +3,15 @@ from fastapi import APIRouter, Depends, Header, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..age import AGE_ERROR_MESSAGES, age_from_birth
 from ..auth import require_registered
 from ..completeness import completeness
 from ..db import get_session
-from ..errors import ConsentRequired, ProfileNotFound, VersionConflict
+from ..errors import ConsentRequired, ProfileNotFound, Validation, VersionConflict
 from ..models import Consent, Profile, ProfileVersion, User
 from ..schemas import ProfileIn, ProfileOut, ProfileVersionEntry, ProfileVersionSnapshot
 
 router = APIRouter(prefix="/profiles", tags=["profiles"])
-
-
-def _age(birth):
-    if not birth:
-        return None
-    today = datetime.now(timezone.utc).date()
-    return today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
 
 
 @router.get("/me", response_model=ProfileOut)
@@ -32,7 +26,7 @@ async def get_me(
     v = await session.get(ProfileVersion, (user.user_id, p.current_version))
     out = ProfileOut(
         **v.body, profile_version=p.current_version,
-        age_years=_age(v.birth_date),
+        age_years=age_from_birth(v.birth_date),
         completeness=float(v.completeness),
         updated_at=p.updated_at,
     )
@@ -49,6 +43,17 @@ async def put_me(
     session: AsyncSession = Depends(get_session),
     response: Response = None,
 ):
+    # Валидация возраста уже случилась в pydantic — но на случай, если
+    # кто-то расширит модель, подстрахуемся ещё раз.
+    if body.birth_date is not None:
+        age = age_from_birth(body.birth_date)
+        if age is None or age < 16 or age > 34:
+            code = "birth_date_too_young" if (age or 0) < 16 else "birth_date_too_old"
+            raise Validation(errors=[{
+                "loc": ["body", "birth_date"],
+                "msg": AGE_ERROR_MESSAGES.get(code, "Недопустимый возраст"),
+            }])
+
     consent = (await session.execute(
         select(Consent).where(Consent.user_id == user.user_id, Consent.kind == "pd_processing")
     )).scalar_one_or_none()
@@ -79,7 +84,7 @@ async def put_me(
 
     out = ProfileOut(
         **data, profile_version=new_version,
-        age_years=_age(body.birth_date),
+        age_years=age_from_birth(body.birth_date),
         completeness=c, updated_at=p.updated_at,
     )
     if response is not None:
@@ -116,6 +121,6 @@ async def get_version(
         raise ProfileNotFound()
     return ProfileVersionSnapshot(
         **v.body, version=v.version, created_at=v.created_at,
-        profile_version=v.version, age_years=_age(v.birth_date),
+        profile_version=v.version, age_years=age_from_birth(v.birth_date),
         completeness=float(v.completeness), updated_at=v.created_at,
     )

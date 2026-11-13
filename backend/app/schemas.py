@@ -1,18 +1,49 @@
 from datetime import date, datetime
+import re
 from typing import Any, Literal
-from pydantic import BaseModel, EmailStr, Field
+
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+from .age import validate_birth_date
 
 ProgrammeKind = Literal["talent", "teacher", "volunteer"]
+
+_PASSWORD_RE = re.compile(r"^(?=.*[A-Za-z])(?=.*\d).+$")
+
+
+def _validate_password(v: str) -> str:
+    if len(v) < 8:
+        raise ValueError("password_too_short")
+    if len(v) > 128:
+        raise ValueError("password_too_long")
+    if not _PASSWORD_RE.match(v):
+        raise ValueError("password_weak")
+    return v
 
 
 class RegisterIn(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
 
+    @field_validator("password")
+    @classmethod
+    def _password(cls, v: str) -> str:
+        return _validate_password(v)
+
+    @field_validator("email")
+    @classmethod
+    def _email_lower(cls, v: str) -> str:
+        return v.strip().lower()
+
 
 class LoginIn(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1, max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def _email_lower(cls, v: str) -> str:
+        return v.strip().lower()
 
 
 class AnonymousAuthIn(BaseModel):
@@ -75,6 +106,15 @@ class ProfileIn(BaseModel):
     experience_text: str | None = Field(default=None, max_length=2000)
     motivation_text: str | None = Field(default=None, max_length=1000)
 
+    @field_validator("birth_date")
+    @classmethod
+    def _check_age(cls, v: date | None) -> date | None:
+        try:
+            validate_birth_date(v)
+        except ValueError as e:
+            raise ValueError(str(e)) from e
+        return v
+
 
 class ProfileOut(ProfileIn):
     profile_version: int
@@ -132,6 +172,8 @@ class RecItem(BaseModel):
     family: dict[str, Any]
     opportunity: OpportunityCard
     reasons: list[dict[str, Any]]
+    liked: bool = False
+    hidden: bool = False
 
 
 class RecGroup(BaseModel):

@@ -1,6 +1,8 @@
+import json
 import uuid
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -22,12 +24,12 @@ async def lifespan(app: FastAPI):
     finally:
         await app.state.matcher.aclose()
         get_settings().openapi_path.write_text(
-            __import__("json").dumps(app.openapi(), ensure_ascii=False, indent=2),
+            json.dumps(app.openapi(), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
 
 
-app = FastAPI(title="aiesec_match backend", version="1.1", lifespan=lifespan)
+app = FastAPI(title="aiesec_match backend", version="1.2", lifespan=lifespan)
 
 
 @app.middleware("http")
@@ -42,6 +44,31 @@ async def request_context(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Request-ID"] = request.state.request_id
     return response
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_handler(request: Request, exc: RequestValidationError):
+    errors = []
+    for e in exc.errors():
+        loc = list(e.get("loc", []))
+        msg = e.get("msg") or "invalid"
+        # pydantic оборачивает наш ValueError в "Value error, <msg>"
+        if msg.startswith("Value error, "):
+            msg = msg[len("Value error, "):]
+        errors.append({"loc": loc, "msg": msg})
+    return JSONResponse(
+        {
+            "type": "/problems/validation",
+            "title": "Validation error",
+            "status": 422,
+            "detail": "",
+            "instance": request.url.path,
+            "request_id": getattr(request.state, "request_id", None),
+            "errors": errors,
+        },
+        status_code=422,
+        media_type="application/problem+json",
+    )
 
 
 app.add_exception_handler(Problem, problem_handler)

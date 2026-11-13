@@ -220,8 +220,7 @@ button { font: inherit; }
 .form__step-title { font-size: var(--fs-h2); margin: 0 0 var(--space-2); }
 .form__progress { font-size: var(--fs-caption); color: var(--c-text-muted); margin-bottom: var(--space-2); }
 .form__actions { display: flex; gap: var(--space-2); justify-content: space-between; margin-top: var(--space-4); }
-
-/* --- Programme cards (выбор -> синий) --- */
+/* --- Programme cards: цвет выбранного = цвет направления --- */
 .prog-cards { display: grid; gap: var(--space-2); }
 .prog-card {
   text-align: left;
@@ -234,38 +233,46 @@ button { font: inherit; }
   display: flex;
   flex-direction: column;
   gap: 6px;
-  transition: border-color .15s, background .15s, color .15s;
+  transition: border-color .15s, background .15s, color .15s, transform .05s;
 }
-.prog-card:hover:not(:disabled) { border-color: var(--c-blue); }
+.prog-card:hover:not(.prog-card--on) { border-color: var(--prog-color, var(--c-blue)); }
 .prog-card--on {
-  background: var(--c-blue);
+  background: var(--prog-color, var(--c-blue));
   color: #fff;
-  border-color: var(--c-blue);
+  border-color: var(--prog-color, var(--c-blue));
 }
 .prog-card--on .prog-card__desc,
-.prog-card--on .prog-card__count { color: rgba(255,255,255,0.9); }
+.prog-card--on .prog-card__count { color: rgba(255,255,255,0.92); }
 .prog-card__head { display: flex; align-items: center; gap: var(--space-2); }
 .prog-card__check {
   width: 20px; height: 20px; border-radius: 50%;
-  border: 2px solid currentColor;
+  border: 2px solid var(--prog-color, var(--c-blue));
+  color: var(--prog-color, var(--c-blue));
   display: inline-flex; align-items: center; justify-content: center;
   font-size: 12px; font-weight: 700;
   background: transparent;
 }
 .prog-card--on .prog-card__check {
-  background: #fff; color: var(--c-blue); border-color: #fff;
+  background: #fff; color: var(--prog-color, var(--c-blue)); border-color: #fff;
 }
 .prog-card__desc { margin: 0; color: var(--c-text-muted); font-size: var(--fs-caption); }
-.prog-card__count { margin-top: auto; font-size: var(--fs-caption); color: var(--c-blue-text); font-weight: 600; }
+.prog-card__count { margin-top: auto; font-size: var(--fs-caption); color: var(--prog-color, var(--c-blue)); font-weight: 600; }
 
 /* --- Password --- */
-.ui-password { position: relative; }
+.ui-password { display: flex; flex-direction: column; gap: 6px; }
+.ui-password__row { position: relative; }
 .ui-password .ui-input { padding-right: 44px; }
 .ui-password__toggle {
   position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
   border: 0; background: transparent; cursor: pointer; padding: 8px; font-size: 16px;
   color: var(--c-text-muted);
 }
+.ui-input--error { border-color: var(--c-danger); }
+.ui-password__strength { display: flex; align-items: center; gap: var(--space-2); }
+.ui-password__bars { display: inline-flex; gap: 4px; }
+.ui-password__bar { width: 32px; height: 4px; border-radius: 999px; background: var(--c-border); }
+.ui-password__bar--on { background: var(--c-blue); }
+.ui-password__label { font-size: var(--fs-caption); color: var(--c-text-muted); }
 
 /* --- Guest banner --- */
 .guest-banner {
