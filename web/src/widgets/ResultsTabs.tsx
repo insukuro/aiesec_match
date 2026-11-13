@@ -23,43 +23,40 @@ export function ResultsTabs({ run, onOpenOpportunity }: ResultsTabsProps) {
   const feedback = useSendFeedback();
 
   if (prior.length === 0) {
-    return (
-      <EmptyState
-        title="Нет рекомендаций"
-        description="Попробуйте изменить срок, страны или бюджет в профиле"
-      />
-    );
+    return <EmptyState title="Нет рекомендаций" description="Попробуйте изменить срок, страны или бюджет в профиле" />;
   }
 
   const items = prior.map((kind) => ({
     id: kind,
     label: PROGRAMME_LABEL[kind] ?? kind,
     color: PROGRAMME_COLORS[kind] ?? "#037EF3",
-    badge: run.groups.find((g) => g.programme_kind === kind)?.items.length ?? 0,
+    badge: run.groups.find((g) => g.programme_kind === kind)?.items.filter((it) => !it.hidden).length ?? 0,
   }));
 
   const group = run.groups.find((g) => g.programme_kind === active);
+  const visible = group?.items.filter((it) => !it.hidden) ?? [];
 
   return (
     <section>
       <Tabs items={items} active={active} onChange={(id) => setActive(id as ProgrammeKind)} />
-      {(!group || group.items.length === 0) ? (
-        <EmptyState
-          title="Подходящих вакансий нет"
-          description="Попробуйте изменить срок, страны или бюджет в профиле"
-        />
+      {visible.length === 0 ? (
+        <EmptyState title="Подходящих вакансий нет" description="Попробуйте изменить срок, страны или бюджет в профиле" />
       ) : (
         <ul className="stack" style={{ listStyle: "none", padding: 0, marginTop: "var(--space-3)" }}>
-          {group.items.map((item) => (
-            <li key={item.opportunity.opportunity_id}>
-              <RecItemCard
-                item={item}
-                onOpen={() => onOpenOpportunity(item.opportunity.opportunity_id)}
-                onLike={() => feedback.mutate({ opportunity_id: item.opportunity.opportunity_id, signal: "liked" })}
-                onHide={() => feedback.mutate({ opportunity_id: item.opportunity.opportunity_id, signal: "hidden" })}
-              />
-            </li>
-          ))}
+          {visible.map((item) => {
+            const id = item.opportunity.opportunity_id;
+            return (
+              <li key={id}>
+                <RecItemCard
+                  item={item}
+                  busy={feedback.isPending}
+                  onOpen={() => onOpenOpportunity(id)}
+                  onLike={() => feedback.mutate({ opportunity_id: id, signal: "liked", run_id: run.run_id })}
+                  onHide={() => feedback.mutate({ opportunity_id: id, signal: "hidden", run_id: run.run_id })}
+                />
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

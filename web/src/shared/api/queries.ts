@@ -13,10 +13,14 @@ export const qk = {
   opportunity: (id: number) => ["opportunity", id] as const,
   opportunities: (params: Record<string, unknown>) => ["opportunities", params] as const,
   subscription: ["subscription"] as const,
+  historyRoot: ["history"] as const,
   history: (params: Record<string, unknown>) => ["history", params] as const,
+  analyticsRoot: ["analytics"] as const,
   analytics: (period: AnalyticsPeriod, from?: string, to?: string) =>
     ["analytics", period, from ?? null, to ?? null] as const,
   dashboard: ["dashboard-preferences"] as const,
+  liked: (params: Record<string, unknown>) => ["feedback", "liked", params] as const,
+  hidden: (params: Record<string, unknown>) => ["feedback", "hidden", params] as const,
 };
 
 export const fetchers = {

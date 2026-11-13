@@ -3,16 +3,17 @@ import { api } from "../../shared/api/endpoints";
 import { getAccessToken, setAccessToken } from "../../shared/api/client";
 import type { Me } from "../../shared/api/types";
 
-type AuthState =
+export type AuthState =
   | { status: "loading" }
   | { status: "guest"; me: Me }
   | { status: "authenticated"; me: Me }
-  | { status: "unknown"; me: null };
+  | { status: "unknown" };
 
 interface AuthContextValue {
   state: AuthState;
   isGuest: boolean;
   isAuthenticated: boolean;
+  me: Me | null;
   refreshMe: () => Promise<void>;
   setMe: (me: Me | null) => void;
   logout: () => void;
@@ -28,7 +29,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   const setMe = useCallback((me: Me | null) => {
     if (!me) {
-      setState({ status: "unknown", me: null });
+      setState({ status: "unknown" });
       return;
     }
     setState({ status: me.is_anonymous ? "guest" : "authenticated", me });
@@ -36,7 +37,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   const refreshMe = useCallback(async () => {
     if (!getAccessToken()) {
-      setState({ status: "unknown", me: null });
+      setState({ status: "unknown" });
       return;
     }
     try {
@@ -44,7 +45,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setMe(me);
     } catch {
       setAccessToken(null);
-      setState({ status: "unknown", me: null });
+      setState({ status: "unknown" });
     }
   }, [setMe]);
 
@@ -69,22 +70,25 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   const logout = useCallback(() => {
     setAccessToken(null);
-    setState({ status: "unknown", me: null });
+    setState({ status: "unknown" });
   }, []);
 
   useEffect(() => { void refreshMe(); }, [refreshMe]);
+
+  const me = "me" in state ? state.me : null;
 
   const value = useMemo<AuthContextValue>(() => ({
     state,
     isGuest: state.status === "guest",
     isAuthenticated: state.status === "authenticated",
+    me,
     refreshMe,
     setMe,
     logout,
     loginAsGuest,
     loginWithPassword,
     registerWithPassword,
-  }), [state, refreshMe, setMe, logout, loginAsGuest, loginWithPassword, registerWithPassword]);
+  }), [state, me, refreshMe, setMe, logout, loginAsGuest, loginWithPassword, registerWithPassword]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

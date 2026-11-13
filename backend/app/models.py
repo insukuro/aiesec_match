@@ -123,8 +123,8 @@ class Feedback(Base):
     signal: Mapped[str] = mapped_column(String(16))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     __table_args__ = (
-        Index("uq_feedback_sig", "user_id", "opportunity_id", "signal", "run_id", unique=True,
-              postgresql_nulls_not_distinct=True),
+        Index("uq_feedback_sig", "user_id", "opportunity_id", "signal", unique=True),
+        Index("ix_feedback_user_signal", "user_id", "signal"),
     )
 
 

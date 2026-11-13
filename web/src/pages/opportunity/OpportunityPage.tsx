@@ -13,6 +13,12 @@ import { Button } from "../../shared/ui/Button";
 import { formatDate } from "../../shared/lib/date";
 import { useSendFeedback } from "../../features/feedback/useSendFeedback";
 
+const AIESEC_SLUG: Record<string, string> = {
+  talent: "global-talent",
+  teacher: "global-teacher",
+  volunteer: "global-volunteer",
+};
+
 export function OpportunityPage() {
   const { id } = useParams();
   const nav = useNavigate();
@@ -30,20 +36,10 @@ export function OpportunityPage() {
   if (!q.data) return null;
   const o = q.data;
 
-const AIESEC_SLUG: Record<string, string> = {
-  talent: "global-talent",
-  teacher: "global-teacher",
-  volunteer: "global-volunteer",
-};
-
   const onApply = async () => {
     await feedback.mutateAsync({ opportunity_id: o.opportunity_id, signal: "applied" });
     const slug = AIESEC_SLUG[o.programme.kind] ?? "global-talent";
-    window.open(
-      `https://aiesec.org/opportunity/${slug}/${o.opportunity_id}`,
-      "_blank",
-      "noopener"
-    );
+    window.open(`https://aiesec.org/opportunity/${slug}/${o.opportunity_id}`, "_blank", "noopener");
   };
 
   return (
@@ -79,7 +75,7 @@ const AIESEC_SLUG: Record<string, string> = {
       )}
 
       <Button size="lg" block onClick={onApply} disabled={!o.is_open || feedback.isPending}>
-        {o.is_open ? "Откликнуться" : "Набор закрыт"}
+        {o.is_open ? (feedback.isPending ? "Отправляем…" : "Откликнуться") : "Набор закрыт"}
       </Button>
     </main>
   );

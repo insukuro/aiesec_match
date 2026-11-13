@@ -12,10 +12,12 @@ export interface RecItemCardProps {
   onOpen: () => void;
   onLike: () => void;
   onHide: () => void;
+  busy?: boolean;
 }
 
-export function RecItemCard({ item, onOpen, onLike, onHide }: RecItemCardProps) {
+export function RecItemCard({ item, onOpen, onLike, onHide, busy }: RecItemCardProps) {
   const o = item.opportunity;
+  const liked = Boolean(item.liked);
   return (
     <article className="ui-card">
       <header className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -38,9 +40,11 @@ export function RecItemCard({ item, onOpen, onLike, onHide }: RecItemCardProps) 
       <ReasonList reasons={item.reasons} />
 
       <div className="row" style={{ marginTop: "var(--space-3)" }}>
-        <Button size="sm" onClick={onOpen}>Подробнее</Button>
-        <Button size="sm" variant="secondary" onClick={onLike}>Подходит</Button>
-        <Button size="sm" variant="outline" onClick={onHide}>Скрыть</Button>
+        <Button size="sm" onClick={onOpen} disabled={busy}>Подробнее</Button>
+        <Button size="sm" variant={liked ? "primary" : "secondary"} onClick={onLike} disabled={busy || liked}>
+          {liked ? "♥ В избранном" : "Подходит"}
+        </Button>
+        <Button size="sm" variant="outline" onClick={onHide} disabled={busy}>Скрыть</Button>
       </div>
     </article>
   );

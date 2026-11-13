@@ -1,7 +1,7 @@
 import hashlib, hmac, uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Header, Response
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import require_registered
@@ -33,6 +33,14 @@ def _programme_prior(value) -> list[str]:
     if isinstance(value, dict):
         return list(value.keys())
     return list(value)
+
+
+async def _hidden_opportunity_ids(session: AsyncSession, user_id: uuid.UUID) -> list[int]:
+    rows = (await session.execute(text("""
+        SELECT DISTINCT opportunity_id FROM core.feedback
+        WHERE user_id = :u AND signal IN ('hidden', 'disliked')
+    """), {"u": user_id})).scalars().all()
+    return list(rows)
 
 
 @router.post("")
@@ -78,6 +86,10 @@ async def create_run(
     }
 
     f = body.filters or {}
+    user_excluded = set(f.get("exclude_opportunity_ids", []))
+    hidden = set(await _hidden_opportunity_ids(session, user.user_id))
+    exclude_ids = list(user_excluded | hidden)
+
     payload = {
         "request_id": str(run.run_id),
         "profile_id": _profile_hash(user.user_id),
@@ -85,7 +97,7 @@ async def create_run(
         "filters": {
             "programme_kinds": f.get("programme_kinds", []),
             "country_codes": f.get("country_codes", []),
-            "exclude_opportunity_ids": f.get("exclude_opportunity_ids", []),
+            "exclude_opportunity_ids": exclude_ids,
         },
         "limit_per_programme": body.limit_per_programme,
         "explain": True,
@@ -137,6 +149,9 @@ async def _assemble(session: AsyncSession, run: RecommendationRun) -> dict:
     cards = await fetch_cards(session, ids)
     reqs = await fetch_requirements(session, ids)
 
+    hidden = set(await _hidden_opportunity_ids(session, run.user_id))
+    liked = set(await _liked_opportunity_ids(session, run.user_id))
+
     groups: dict[str, dict] = {}
     for it in items:
         c = cards.get(it.opportunity_id)
@@ -146,10 +161,14 @@ async def _assemble(session: AsyncSession, run: RecommendationRun) -> dict:
             "programme_kind": it.programme_kind, "total_candidates": 0, "items": [],
         })
         g["items"].append({
-            "rank": it.rank, "score": float(it.score), "label": _label(float(it.score)),
+            "rank": it.rank,
+            "score": float(it.score),
+            "label": _label(float(it.score)),
             "family": {"family_key": c["family_key"], "siblings_count": 0},
             "opportunity": _card(c, reqs.get(it.opportunity_id, [])),
             "reasons": it.reasons,
+            "liked": it.opportunity_id in liked,
+            "hidden": it.opportunity_id in hidden,
         })
     prior = _programme_prior(run.programme_prior) or list(groups.keys())
     ordered = [groups[k] for k in prior if k in groups]
@@ -162,6 +181,13 @@ async def _assemble(session: AsyncSession, run: RecommendationRun) -> dict:
         "groups": ordered, "error": run.error,
     }
 
+
+async def _liked_opportunity_ids(session: AsyncSession, user_id: uuid.UUID) -> list[int]:
+    rows = (await session.execute(text("""
+        SELECT DISTINCT opportunity_id FROM core.feedback
+        WHERE user_id = :u AND signal = 'liked'
+    """), {"u": user_id})).scalars().all()
+    return list(rows)
 
 def _card(c: dict, reqs: list[dict]) -> dict:
     return {

@@ -11,4 +11,5 @@ export const ROUTES = {
   profileStatsSettings: "/profile/statistics/settings",
   history: "/history",
   settings: "/settings",
+  favorites: "/profile/favorites",
 } as const;

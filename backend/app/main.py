@@ -5,8 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .api import (
-    auth, feedback, health, me, meta, notifications, opportunities,
-    profiles, recommendations, subscriptions,
+    analytics, auth, feedback, health, history, me, meta, notifications,
+    opportunities, profiles, recommendations, subscriptions,
 )
 from .config import get_settings
 from .errors import Problem, problem_handler
@@ -34,8 +34,11 @@ app = FastAPI(title="aiesec_match backend", version="1.1", lifespan=lifespan)
 async def request_context(request: Request, call_next):
     request.state.request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
     cl = request.headers.get("content-length")
-    if cl is not None and int(cl) > get_settings().request_body_max_bytes:
-        return JSONResponse({"detail": "request body too large"}, status_code=413)
+    try:
+        if cl is not None and int(cl) > get_settings().request_body_max_bytes:
+            return JSONResponse({"detail": "request body too large"}, status_code=413)
+    except ValueError:
+        pass
     response = await call_next(request)
     response.headers["X-Request-ID"] = request.state.request_id
     return response
@@ -48,7 +51,7 @@ app.add_middleware(
 )
 
 for module in (auth, me, meta, profiles, opportunities, recommendations,
-               feedback, subscriptions, health):
+               feedback, subscriptions, analytics, history, health):
     app.include_router(module.router, prefix="/api/v1")
 
 app.include_router(notifications.router, prefix="/internal/v1")

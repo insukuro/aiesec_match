@@ -17,7 +17,7 @@ import { EmptyState } from "../../shared/ui/EmptyState";
 export function SettingsPage() {
   const nav = useNavigate();
   const qc = useQueryClient();
-  const { isGuest, logout, state } = useAuth();
+  const { isGuest, me, logout } = useAuth();
   const [confirmDelete, setConfirmDelete] = useState(false);
   useEffect(() => { document.title = "Настройки — AIESEC Match"; }, []);
 
@@ -53,13 +53,13 @@ export function SettingsPage() {
     <main className="page">
       <h1 className="page__title">Настройки</h1>
 
-      {state.me?.email && (
+      {me?.email && (
         <section className="section">
           <h2 className="section__title">Аккаунт</h2>
           <div className="ui-card">
             <div className="row" style={{ justifyContent: "space-between" }}>
               <span className="muted">Email</span>
-              <strong>{state.me.email}</strong>
+              <strong>{me.email}</strong>
             </div>
             <div className="row" style={{ marginTop: "var(--space-3)" }}>
               <Button variant="outline" onClick={() => { logout(); nav(ROUTES.welcome); }}>Выйти</Button>

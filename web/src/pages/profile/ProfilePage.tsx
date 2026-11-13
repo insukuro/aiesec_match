@@ -56,6 +56,7 @@ export function ProfilePage() {
       <ProfileSummary profile={p} />
       <div className="row section">
         <Button onClick={() => nav(ROUTES.profileEdit)}>Редактировать</Button>
+        <Button variant="outline" onClick={() => nav(ROUTES.favorites)}>Избранное</Button>
         <Link to={ROUTES.profileStats} className="ui-btn" data-variant="outline">Моя статистика</Link>
       </div>
       <section className="section">
@@ -64,4 +65,5 @@ export function ProfilePage() {
       </section>
     </main>
   );
+  
 }

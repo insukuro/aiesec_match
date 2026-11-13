@@ -10,7 +10,7 @@ export function App() {
   const nav = useNavigate();
   const location = useLocation();
   const online = useOnline();
-  const { state } = useAuth();
+  const { state, me } = useAuth();
 
   useEffect(() => {
     setUnauthorizedHandler(() => nav("/login"));
@@ -29,10 +29,12 @@ export function App() {
     );
   }
 
+  // Показываем нижнюю навигацию только когда есть пользователь
+  // (гость или авторизованный) — не в состоянии "unknown".
   return (
     <>
       <Outlet />
-      {state.me && <MainNavigation />}
+      {me && <MainNavigation />}
     </>
   );
 }

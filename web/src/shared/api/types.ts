@@ -131,8 +131,9 @@ export interface RecItem {
   family: { family_key: string | null; siblings_count: number };
   opportunity: OpportunityCard;
   reasons: Array<{ code: string; polarity: "positive" | "negative"; weight: number; text: string }>;
+  liked?: boolean;
+  hidden?: boolean;
 }
-
 export interface RecGroup {
   programme_kind: ProgrammeKind;
   total_candidates: number;

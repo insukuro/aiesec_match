@@ -81,8 +81,6 @@ export const api = {
   getRecommendation: (runId: string) => request<RecommendationRun>(`/recommendations/${runId}`),
   getLatestRecommendation: () => request<RecommendationRun>("/recommendations/latest"),
 
-  postFeedback: (body: FeedbackIn) => request<void>("/feedback", { method: "POST", body }),
-
   getSubscription: () => request<SubscriptionPrefs>("/subscriptions/me"),
   putSubscription: (body: SubscriptionPrefs) =>
     request<SubscriptionPrefs>("/subscriptions/me", { method: "PUT", body }),
@@ -105,4 +103,22 @@ export const api = {
   getDashboardPreferences: () => request<DashboardPreferences>("/users/me/dashboard-preferences"),
   putDashboardPreferences: (body: DashboardPreferences) =>
     request<DashboardPreferences>("/users/me/dashboard-preferences", { method: "PUT", body }),
+    postFeedback: (body: FeedbackIn) => request<void>("/feedback", { method: "POST", body }),
+
+  deleteFeedback: (opportunityId: number, signal: "liked" | "disliked" | "hidden" | "opened" | "applied") =>
+    request<void>(`/feedback/${opportunityId}?signal=${signal}`, { method: "DELETE" }),
+
+  getLikedFeedback: (params?: { limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.limit) qs.set("limit", String(params.limit));
+    if (params?.offset) qs.set("offset", String(params.offset));
+    return request<Page<OpportunityCard>>(`/feedback/liked?${qs.toString()}`);
+  },
+
+  getHiddenFeedback: (params?: { limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.limit) qs.set("limit", String(params.limit));
+    if (params?.offset) qs.set("offset", String(params.offset));
+    return request<Page<OpportunityCard>>(`/feedback/hidden?${qs.toString()}`);
+  },
 };

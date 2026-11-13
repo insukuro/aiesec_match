@@ -1,5 +1,5 @@
 import type { FormOption } from "../../shared/api/types";
-import { PROGRAMME_COLORS, PROGRAMME_LABEL } from "../../shared/config/brand";
+import { PROGRAMME_LABEL } from "../../shared/config/brand";
 
 export interface ProgrammeCardsProps {
   options: FormOption[];
@@ -21,18 +21,16 @@ export function ProgrammeCards({ options, value, onChange }: ProgrammeCardsProps
     <div className="prog-cards">
       {options.map((o) => {
         const selected = value.includes(o.code);
-        const colour = PROGRAMME_COLORS[o.code as keyof typeof PROGRAMME_COLORS] ?? "#037EF3";
         return (
           <button
             key={o.code}
             type="button"
             className={`prog-card ${selected ? "prog-card--on" : ""}`}
-            style={{ ["--prog-color" as string]: colour }}
             onClick={() => toggle(o.code)}
             aria-pressed={selected}
           >
             <div className="prog-card__head">
-              <span className="prog-card__dot" />
+              <span className="prog-card__check" aria-hidden>{selected ? "✓" : ""}</span>
               <strong>{o.label || PROGRAMME_LABEL[o.code as keyof typeof PROGRAMME_LABEL]}</strong>
             </div>
             <p className="prog-card__desc">{DESCRIPTIONS[o.code] ?? ""}</p>
