@@ -82,26 +82,6 @@ services:
     profiles: ["never"]
 
   # ---------- тесты (только по `--profile tools`) ----------
-
-  backend-tests:
-    build:
-      context: .
-      dockerfile: infra/docker/backend.Dockerfile
-      args:
-        REQUIREMENTS: /srv/requirements/backend-dev.txt
-    image: aiesec-backend:dev
-    profiles: ["tools"]
-    working_dir: /srv
-    environment:
-      AIESEC_DATABASE_URL: sqlite+aiosqlite:////tmp/test.db
-    volumes:
-      - ./backend/app:/srv/app
-      - ./backend/tests:/srv/tests
-      - ./backend/migrations:/srv/migrations
-      - ./htmlcov:/srv/htmlcov
-    entrypoint: ["pytest"]
-    command: ["-q", "--cov=app", "--cov-report=term", "--cov-report=html"]
-
   parser-tests:
     build:
       context: .
@@ -127,7 +107,27 @@ services:
       - ./htmlcov:/srv/htmlcov
     entrypoint: ["python", "-m", "pytest"]
     command: ["-q"]
-
+  matcher-tests:
+    build:
+      context: .
+      dockerfile: infra/docker/matcher.Dockerfile
+      args:
+        REQUIREMENTS: /srv/requirements/matcher-dev.txt
+    image: aiesec-matcher:dev
+    profiles: ["tools"]
+    working_dir: /srv
+    environment:
+      MATCHER_CATALOG_SOURCE: fake
+    volumes:
+      - ./matcher/app:/srv/app:ro
+      - ./matcher/tests:/srv/tests:ro
+      - ./matcher/pytest.ini:/srv/pytest.ini:ro
+      - ./matcher/app/data:/srv/app/data:ro
+      - ./matcher/app/weights.yaml:/srv/app/weights.yaml:ro
+      - ./matcher/app/domain/taxonomy.yaml:/srv/app/domain/taxonomy.yaml:ro
+    entrypoint: ["python", "-m", "pytest"]
+    command: ["-c", "/srv/pytest.ini", "tests"]
+    
 volumes:
   pgdata:
     name: aiesec-pgdata-dev

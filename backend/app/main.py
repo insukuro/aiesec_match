@@ -12,7 +12,7 @@ from .api import (
 )
 from .config import get_settings
 from .errors import Problem, problem_handler
-
+from starlette.types import ASGIApp, Scope, Receive, Send
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -32,19 +32,30 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="aiesec_match backend", version="1.2", lifespan=lifespan)
 
 
-@app.middleware("http")
-async def request_context(request: Request, call_next):
-    request.state.request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
-    cl = request.headers.get("content-length")
-    try:
-        if cl is not None and int(cl) > get_settings().request_body_max_bytes:
-            return JSONResponse({"detail": "request body too large"}, status_code=413)
-    except ValueError:
-        pass
-    response = await call_next(request)
-    response.headers["X-Request-ID"] = request.state.request_id
-    return response
+class RequestContextMiddleware:
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
 
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = dict(scope.get("headers") or [])
+        rid = (headers.get(b"x-request-id") or b"").decode() or str(uuid.uuid4())
+        scope.setdefault("state", {})["request_id"] = rid
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                message.setdefault("headers", []).append(
+                    (b"x-request-id", rid.encode())
+                )
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+
+app.add_middleware(RequestContextMiddleware)
 
 @app.exception_handler(RequestValidationError)
 async def validation_handler(request: Request, exc: RequestValidationError):

@@ -1,0 +1,6515 @@
+===================================================================
+### DIRECTORY: infra
+===================================================================
+
+----- FILE: infra/docker/backend.Dockerfile -----
+FROM python:3.12-slim
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+WORKDIR /srv
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential libpq-dev curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY infra/requirements/ /srv/requirements/
+
+ARG REQUIREMENTS=/srv/requirements/backend.txt
+RUN pip install --no-cache-dir -r ${REQUIREMENTS}
+
+COPY backend /srv
+RUN mkdir -p /srv/openapi
+
+EXPOSE 8000
+HEALTHCHECK --interval=15s --timeout=5s --retries=5 --start-period=20s \
+  CMD curl -fsS http://localhost:8000/api/v1/health || exit 1
+
+# Ждём БД, накатываем миграции, проверяем, что схема core существует.
+CMD ["sh", "-c", "\
+  python -c 'import time, psycopg; \
+for _ in range(30): \
+    try: \
+        psycopg.connect(\"host=postgres dbname=aiesec_match user=backend_writer password=backend\").close(); break \
+    except Exception as e: \
+        print(\"waiting for postgres:\", e); time.sleep(1)' && \
+  alembic upgrade head && \
+  exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"]
+
+----- FILE: infra/docker/matcher.Dockerfile -----
+FROM python:3.12-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /srv
+
+COPY infra/requirements/ /srv/requirements/
+ARG REQUIREMENTS=/srv/requirements/matcher.txt
+RUN pip install --no-cache-dir -r ${REQUIREMENTS}
+
+COPY matcher /srv
+
+EXPOSE 8000
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+----- FILE: infra/docker/parser.Dockerfile -----
+FROM python:3.12-slim
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+WORKDIR /srv
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Копируем каталог целиком — тогда `-r parser.txt` внутри parser-dev.txt
+# резолвится относительно /srv/requirements/parser.txt
+COPY infra/requirements/ /srv/requirements/
+
+ARG REQUIREMENTS=/srv/requirements/parser.txt
+RUN pip install --no-cache-dir -r ${REQUIREMENTS}
+
+COPY parser/app ./app
+COPY parser/targets.json .
+COPY parser/alembic.ini .
+COPY parser/migrations ./migrations
+
+EXPOSE 8000
+HEALTHCHECK --interval=15s --timeout=5s --retries=5 --start-period=20s \
+  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).status == 200 else 1)"
+
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"]
+
+----- FILE: infra/docker/web.Dockerfile -----
+# --- build stage ---
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY web/package.json web/package-lock.json* ./
+RUN npm ci || npm install
+COPY web/ ./
+RUN npm run build
+
+# --- runtime ---
+FROM nginx:1.27-alpine
+COPY infra/docker/web.nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist /usr/share/nginx/html
+EXPOSE 80
+
+----- FILE: infra/docker/web.nginx.conf -----
+server {
+  listen 80;
+  server_name _;
+
+  root /usr/share/nginx/html;
+  index index.html;
+
+  location /api/ {
+    proxy_pass http://backend:8000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Request-ID $request_id;
+  }
+
+  location / {
+    try_files $uri /index.html;
+  }
+}
+
+----- FILE: infra/postgres/bootstrap.sql -----
+-- Идемпотентно: роли создаются, если их нет; пароли обновляются всегда.
+-- Порядок: роли -> пароли -> \connect -> схемы -> владельцы -> гранты -> таймауты.
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'parser_writer')  THEN CREATE ROLE parser_writer  LOGIN; END IF;
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'backend_writer') THEN CREATE ROLE backend_writer LOGIN; END IF;
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'matcher_writer') THEN CREATE ROLE matcher_writer LOGIN; END IF;
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'catalog_ro')     THEN CREATE ROLE catalog_ro     NOLOGIN; END IF;
+END $$;
+
+ALTER ROLE parser_writer  WITH PASSWORD :'parser_pw';
+ALTER ROLE backend_writer WITH PASSWORD :'backend_pw';
+ALTER ROLE matcher_writer WITH PASSWORD :'matcher_pw';
+
+\connect :"app_db"
+
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS vector;
+
+CREATE SCHEMA IF NOT EXISTS parser;
+CREATE SCHEMA IF NOT EXISTS catalog;
+CREATE SCHEMA IF NOT EXISTS core;
+CREATE SCHEMA IF NOT EXISTS matcher;
+
+ALTER SCHEMA parser  OWNER TO parser_writer;
+ALTER SCHEMA catalog OWNER TO parser_writer;
+ALTER SCHEMA core    OWNER TO backend_writer;
+ALTER SCHEMA matcher OWNER TO matcher_writer;
+
+
+GRANT USAGE ON SCHEMA catalog TO catalog_ro;
+GRANT SELECT ON ALL TABLES    IN SCHEMA catalog TO catalog_ro;
+GRANT SELECT ON ALL SEQUENCES IN SCHEMA catalog TO catalog_ro;
+
+ALTER DEFAULT PRIVILEGES FOR ROLE parser_writer IN SCHEMA catalog
+    GRANT SELECT ON TABLES TO catalog_ro;
+
+GRANT catalog_ro TO backend_writer, matcher_writer;
+
+REVOKE ALL ON SCHEMA parser, core, matcher FROM PUBLIC;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+
+ALTER ROLE matcher_writer SET statement_timeout = '5s';
+ALTER ROLE backend_writer SET statement_timeout = '5s';
+ALTER ROLE parser_writer  SET statement_timeout = '60s';
+ALTER ROLE matcher_writer SET idle_in_transaction_session_timeout = '30s';
+ALTER ROLE backend_writer SET idle_in_transaction_session_timeout = '30s';
+
+
+----- FILE: infra/postgres/init/01-databases.sh -----
+#!/bin/sh
+# Выполняется ОДИН РАЗ при первом создании volume.
+# Только создание единой БД приложения. Роли/схемы — в db-init (bootstrap.sql), он идемпотентен.
+set -e
+
+create_db() {
+  psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres \
+    -tc "SELECT 1 FROM pg_database WHERE datname = '$1'" | grep -q 1 \
+    || psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres -c "CREATE DATABASE \"$1\""
+}
+
+create_db "${APP_DB:-aiesec_match}"
+
+----- FILE: infra/requirements/README.md -----
+# Requirements
+
+Единая точка для зависимостей. Dockerfile'ы читают файлы отсюда:
+
+- `backend.txt` — production
+- `backend-dev.txt` — dev + tests
+- `parser.txt` — production
+- `parser-dev.txt` — dev + tests
+
+----- FILE: infra/requirements/backend-dev.txt -----
+-r backend.txt
+pytest==8.3.3
+pytest-asyncio==0.24.0
+pytest-cov==5.0.0
+aiosqlite==0.20.0
+asgi-lifespan==2.1.0
+respx==0.21.1
+
+----- FILE: infra/requirements/backend.txt -----
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+sqlalchemy[asyncio]==2.0.34
+asyncpg==0.29.0
+alembic==1.13.2
+pydantic==2.9.2
+pydantic-settings==2.5.2
+pyjwt==2.9.0
+httpx==0.27.2
+pyyaml==6.0.2
+passlib==1.7.4
+bcrypt==4.1.3
+email-validator==2.2.0
+
+----- FILE: infra/requirements/matcher-dev.txt -----
+-r matcher.txt
+pytest==8.3.3
+pytest-asyncio==0.24.0
+pytest-cov==5.0.0
+httpx==0.27.2
+
+----- FILE: infra/requirements/matcher.txt -----
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+sqlalchemy==2.0.36
+psycopg[binary]==3.2.3
+alembic==1.14.0
+pydantic==2.10.4
+pydantic-settings==2.7.0
+requests==2.32.3
+apscheduler==3.11.0
+pyyaml==6.0.2
+
+----- FILE: infra/requirements/parser-dev.txt -----
+-r parser.txt
+pytest==8.3.3
+pytest-asyncio==0.24.0
+pytest-cov==5.0.0
+httpx==0.27.2
+
+----- FILE: infra/requirements/parser.txt -----
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+sqlalchemy==2.0.36
+psycopg[binary]==3.2.3
+alembic==1.14.0
+pydantic==2.10.4
+pydantic-settings==2.7.0
+requests==2.32.3
+apscheduler==3.11.0
+===================================================================
+### DIRECTORY: matcher
+===================================================================
+
+----- FILE: matcher/app/__init__.py -----
+[binary file skipped]
+
+
+----- FILE: matcher/app/config.py -----
+from functools import lru_cache
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="MATCHER_", extra="ignore")
+
+    min_english: dict = {"talent": "B1", "teacher": "B2", "volunteer": "A2"}
+    catalog_source: str = "db"
+    fake_catalog_path: str = "app/data/fake_catalog.json"
+    database_url: str = ""
+    label_excellent: float = 0.75
+    label_good: float = 0.55
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+----- FILE: matcher/app/data/_lists_backgrounds.json -----
+[
+  {
+    "id": 10224,
+    "name": "Accounting",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10225,
+    "name": "Aerospace engineering",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10226,
+    "name": "Agriculture",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11275,
+    "name": "Anthropology",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10227,
+    "name": "Archeology",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10228,
+    "name": "Architecture",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10229,
+    "name": "Arts",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11276,
+    "name": "Assurance",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11277,
+    "name": "Audit",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10230,
+    "name": "Automotive engineering",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10231,
+    "name": "Banking",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11278,
+    "name": "Bioengineering",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10232,
+    "name": "Biology",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11279,
+    "name": "Biomedical Science",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10233,
+    "name": "Business administration",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10234,
+    "name": "Chemical engineering",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10235,
+    "name": "Chemistry",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10236,
+    "name": "Civil engineering",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10237,
+    "name": "Communication & journalism",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10238,
+    "name": "Computer engineering",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10239,
+    "name": "Computer sciences",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11280,
+    "name": "Design",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11281,
+    "name": "Earth Sciences",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11282,
+    "name": "Ecology",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10240,
+    "name": "Economics",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10241,
+    "name": "Education",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10242,
+    "name": "Electrical engineering",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10243,
+    "name": "Electronics engineering",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11283,
+    "name": "Entrepreneurship",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10244,
+    "name": "Environmental engineering",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10245,
+    "name": "Finance",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 22303,
+    "name": "Food Engineering",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 22304,
+    "name": "Food Science",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10246,
+    "name": "Geography",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10247,
+    "name": "Graphic design",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11284,
+    "name": "Health Science",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11285,
+    "name": "History",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11286,
+    "name": "Human Resources",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11287,
+    "name": "Industrial Design",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10248,
+    "name": "Industrial engineering",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10249,
+    "name": "International relations",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11288,
+    "name": "International Trade",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11289,
+    "name": "Languages",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10250,
+    "name": "Law",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10251,
+    "name": "Linguistics",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10252,
+    "name": "Literature",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11290,
+    "name": "Logistics",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10253,
+    "name": "Marketing",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10254,
+    "name": "Material engineering",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10255,
+    "name": "Mathematics",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10256,
+    "name": "Mechanical engineering",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11291,
+    "name": "Media Arts",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10257,
+    "name": "Medicine",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10258,
+    "name": "Military sciences",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11292,
+    "name": "Music",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10259,
+    "name": "Nanotechnology",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11293,
+    "name": "Nursing",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 21248,
+    "name": "Nutrition",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10271,
+    "name": "Other",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11294,
+    "name": "Petroleum Engineering",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10260,
+    "name": "Philosophy",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10261,
+    "name": "Physics",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10262,
+    "name": "Political science",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10263,
+    "name": "Psychology",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10264,
+    "name": "Public administration",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10265,
+    "name": "Public relations",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10266,
+    "name": "Religion",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 21677,
+    "name": "Sales",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11295,
+    "name": "Social Work",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10267,
+    "name": "Sociology",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10268,
+    "name": "Software development and programming",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11296,
+    "name": "Sports",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11297,
+    "name": "Statistics",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 22072,
+    "name": "Sustainability",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11298,
+    "name": "Systems and Computing Engineering",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10269,
+    "name": "Telecommunication Engineering",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11299,
+    "name": "Theatre",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10270,
+    "name": "Tourism & hotel management",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 21247,
+    "name": "Veterinarian",
+    "matching_with_opportunity": null
+  }
+]
+
+----- FILE: matcher/app/data/_lists_industries.json -----
+[
+  {
+    "id": 10568,
+    "name": "Accounting",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10569,
+    "name": "Airlines/Aviation",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10570,
+    "name": "Alternative Dispute Resolution",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10571,
+    "name": "Alternative Medicine",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10572,
+    "name": "Animation",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10573,
+    "name": "Apparel & Fashion",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10574,
+    "name": "Architecture & Planning",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10575,
+    "name": "Arts and Crafts",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10576,
+    "name": "Automotive",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10577,
+    "name": "Aviation & Aerospace",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10578,
+    "name": "Banking",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10579,
+    "name": "Biotechnology",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10580,
+    "name": "Broadcast Media",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10581,
+    "name": "Building Materials",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10582,
+    "name": "Business Supplies and Equipment",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10583,
+    "name": "Capital Markets",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10584,
+    "name": "Chemicals",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10585,
+    "name": "Civic & Social Organization",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10586,
+    "name": "Civil Engineering",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10587,
+    "name": "Commercial Real Estate",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10589,
+    "name": "Computer Games",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10590,
+    "name": "Computer Hardware",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10591,
+    "name": "Computer Networking",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10588,
+    "name": "Computer & Network Security",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10592,
+    "name": "Computer Software",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10593,
+    "name": "Construction",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10594,
+    "name": "Consumer Electronics",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10595,
+    "name": "Consumer Goods",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10596,
+    "name": "Consumer Services",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10597,
+    "name": "Cosmetics",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10598,
+    "name": "Dairy",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10599,
+    "name": "Defense & Space",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10600,
+    "name": "Design",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10601,
+    "name": "Education Management",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10602,
+    "name": "E-Learning",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10603,
+    "name": "Electrical/Electronic Manufacturing",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10604,
+    "name": "Entertainment",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10605,
+    "name": "Environmental Services",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10606,
+    "name": "Events Services",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10607,
+    "name": "Executive Office",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10608,
+    "name": "Facilities Services",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10609,
+    "name": "Farming",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10610,
+    "name": "Financial Services",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10611,
+    "name": "Fine Art",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10612,
+    "name": "Fishery",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10613,
+    "name": "Food & Beverages",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10614,
+    "name": "Food Production",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10615,
+    "name": "Fund-Raising",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10616,
+    "name": "Furniture",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10617,
+    "name": "Gambling & Casinos",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10618,
+    "name": "Glass, Ceramics & Concrete",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10619,
+    "name": "Government Administration",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10620,
+    "name": "Government Relations",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10621,
+    "name": "Graphic Design",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10622,
+    "name": "Health, Wellness and Fitness",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10623,
+    "name": "Higher Education",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10624,
+    "name": "Hospital & Health Care",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10625,
+    "name": "Hospitality",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10626,
+    "name": "Human Resources",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10627,
+    "name": "Import and Export",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10628,
+    "name": "Individual & Family Services",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10629,
+    "name": "Industrial Automation",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10630,
+    "name": "Information Services",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10631,
+    "name": "Information Technology and Services",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10632,
+    "name": "Insurance",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10633,
+    "name": "International Affairs",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10634,
+    "name": "International Trade and Development",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10635,
+    "name": "Internet",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10636,
+    "name": "Investment Banking",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10637,
+    "name": "Investment Management",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10638,
+    "name": "Judiciary",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10639,
+    "name": "Law Enforcement",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10640,
+    "name": "Law Practice",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10641,
+    "name": "Legal Services",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10642,
+    "name": "Legislative Office",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10643,
+    "name": "Leisure, Travel & Tourism",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10644,
+    "name": "Libraries",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10645,
+    "name": "Logistics and Supply Chain",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10646,
+    "name": "Luxury Goods & Jewelry",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10647,
+    "name": "Machinery",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10648,
+    "name": "Management Consulting",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10649,
+    "name": "Maritime",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10650,
+    "name": "Marketing and Advertising",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10651,
+    "name": "Market Research",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10652,
+    "name": "Mechanical or Industrial Engineering",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10653,
+    "name": "Media Production",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10654,
+    "name": "Medical Devices",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10655,
+    "name": "Medical Practice",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10656,
+    "name": "Mental Health Care",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10657,
+    "name": "Military",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10658,
+    "name": "Mining & Metals",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10659,
+    "name": "Motion Pictures and Film",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10660,
+    "name": "Museums and Institutions",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10661,
+    "name": "Music",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10662,
+    "name": "Nanotechnology",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10663,
+    "name": "Newspapers",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10664,
+    "name": "Nonprofit Organization Management",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10665,
+    "name": "Oil & Energy",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10666,
+    "name": "Online Media",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10667,
+    "name": "Outsourcing/Offshoring",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10668,
+    "name": "Package/Freight Delivery",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10669,
+    "name": "Packaging and Containers",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10670,
+    "name": "Paper & Forest Products",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10671,
+    "name": "Performing Arts",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10672,
+    "name": "Pharmaceuticals",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10673,
+    "name": "Philanthropy",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10674,
+    "name": "Photography",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10675,
+    "name": "Plastics",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10676,
+    "name": "Political Organization",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10677,
+    "name": "Primary/Secondary Education",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10678,
+    "name": "Printing",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10679,
+    "name": "Professional Training & Coaching",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10680,
+    "name": "Program Development",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10681,
+    "name": "Public Policy",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10682,
+    "name": "Public Relations and Communications",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10683,
+    "name": "Public Safety",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10684,
+    "name": "Publishing",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10685,
+    "name": "Railroad Manufacture",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10686,
+    "name": "Ranching",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10687,
+    "name": "Real Estate",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10688,
+    "name": "Recreational Facilities and Services",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10689,
+    "name": "Religious Institutions",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10690,
+    "name": "Renewables & Environment",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10691,
+    "name": "Research",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10692,
+    "name": "Restaurants",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10693,
+    "name": "Retail",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10694,
+    "name": "Security and Investigations",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10695,
+    "name": "Semiconductors",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10696,
+    "name": "Shipbuilding",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10697,
+    "name": "Sporting Goods",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10698,
+    "name": "Sports",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10699,
+    "name": "Staffing and Recruiting",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10700,
+    "name": "Supermarkets",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10701,
+    "name": "Telecommunications",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10702,
+    "name": "Textiles",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10703,
+    "name": "Think Tanks",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10704,
+    "name": "Tobacco",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10705,
+    "name": "Translation and Localization",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10706,
+    "name": "Transportation/Trucking/Railroad",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10707,
+    "name": "Utilities",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10708,
+    "name": "Venture Capital & Private Equity",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10709,
+    "name": "Veterinary",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10710,
+    "name": "Warehousing",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10711,
+    "name": "Wholesale",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10712,
+    "name": "Wine and Spirits",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10713,
+    "name": "Wireless",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10714,
+    "name": "Writing and Editing",
+    "matching_with_opportunity": null
+  }
+]
+
+----- FILE: matcher/app/data/_lists_issues.json -----
+[
+  {
+    "id": 10314,
+    "name": "Ageing Population",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10296,
+    "name": "Alcohol and drug abuses",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10278,
+    "name": "Career planning",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10303,
+    "name": "Children Rights",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10285,
+    "name": "Climate change",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10291,
+    "name": "Corruption",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10282,
+    "name": "Cross-cultural dialogues",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10292,
+    "name": "Democracy",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10297,
+    "name": "Diseases",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10286,
+    "name": "Energy",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10273,
+    "name": "Entrepreneurship",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10319,
+    "name": "Family planning",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10309,
+    "name": "Financial literacy",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10287,
+    "name": "Flora and fauna protection",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10298,
+    "name": "Food and nutrition",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10320,
+    "name": "Food security",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10304,
+    "name": "Gender Rights",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10324,
+    "name": "Human Trafficking",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10310,
+    "name": "Language literacy",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10279,
+    "name": "Leadership",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10293,
+    "name": "Legalities",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10274,
+    "name": "Microfinance",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10315,
+    "name": "Migration",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10325,
+    "name": "Natural disaster",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10275,
+    "name": "Organisational development",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10311,
+    "name": "Other subjects literacy",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10288,
+    "name": "Pollution",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10316,
+    "name": "Population growth",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10283,
+    "name": "Protect and showcase local traditions",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10321,
+    "name": "Resources scarcity",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10305,
+    "name": "Right of people with disabilities",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10326,
+    "name": "Road Safety",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10299,
+    "name": "Sanitation and hygiene",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10300,
+    "name": "Sexually transmitted diseases",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10276,
+    "name": "Social Business",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10280,
+    "name": "Soft skills",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10301,
+    "name": "Sport and recreation activities",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10312,
+    "name": "Technological literacy",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10294,
+    "name": "Transparency",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10306,
+    "name": "Tribes and minorities rights",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10317,
+    "name": "Urbanization",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10322,
+    "name": "Urban planning",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10327,
+    "name": "Violence prevention",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10289,
+    "name": "Waste management",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10307,
+    "name": "Woman Rights",
+    "matching_with_opportunity": null
+  }
+]
+
+----- FILE: matcher/app/data/_lists_languages.json -----
+[
+  {
+    "id": 10005,
+    "name": "Albanian",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10006,
+    "name": "Arabic",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10007,
+    "name": "Armenian",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10008,
+    "name": "Azerbaijani",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10009,
+    "name": "Bahasa Indonesian",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10010,
+    "name": "Bahasa Malaysia",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11342,
+    "name": "Bengali",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10011,
+    "name": "Bulgarian",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11300,
+    "name": "Catalan",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10012,
+    "name": "Chinese",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10013,
+    "name": "Chinese, Cantonese",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10014,
+    "name": "Chinese, Mandarin",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10015,
+    "name": "Czech",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10016,
+    "name": "Danish",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10017,
+    "name": "Dutch",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10018,
+    "name": "English",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10019,
+    "name": "Estonian",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10020,
+    "name": "Farsi",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11301,
+    "name": "Filipino",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10021,
+    "name": "Finnish",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10022,
+    "name": "French",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11302,
+    "name": "Galician",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10023,
+    "name": "Georgian",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10024,
+    "name": "German",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10025,
+    "name": "Greek",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10026,
+    "name": "Hebrew",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10027,
+    "name": "Hindi",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10028,
+    "name": "Hungarian",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10029,
+    "name": "Icelandic",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10030,
+    "name": "Irish",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10031,
+    "name": "Italian",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10032,
+    "name": "Japanese",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10033,
+    "name": "Kiswahili",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10034,
+    "name": "Korean",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 12059,
+    "name": "Lao",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10035,
+    "name": "Latvian",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10036,
+    "name": "Lithuanian",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10037,
+    "name": "Macedonian",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11327,
+    "name": "Maltese",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10038,
+    "name": "Mengrelian",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10039,
+    "name": "Norwegian",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10040,
+    "name": "Polish",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10041,
+    "name": "Portuguese",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10042,
+    "name": "Romanian",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10043,
+    "name": "Russian",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10044,
+    "name": "Setswana",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11303,
+    "name": "Sign Language",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10045,
+    "name": "Slavic (Bosnian, Serbian, Croatian)",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10046,
+    "name": "Slovak",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10047,
+    "name": "Slovenian",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10048,
+    "name": "Spanish",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10049,
+    "name": "Swedish",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10050,
+    "name": "Thai",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10051,
+    "name": "Turkish",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10052,
+    "name": "Ukrainian",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10053,
+    "name": "Urdu",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10054,
+    "name": "Vietnamese",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10055,
+    "name": "Welsh",
+    "matching_with_opportunity": null
+  }
+]
+
+----- FILE: matcher/app/data/_lists_skills.json -----
+[
+  {
+    "id": 10147,
+    "name": "3D Max",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11216,
+    "name": "ABAP",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11217,
+    "name": "Ada",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11170,
+    "name": "Adaptability",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11148,
+    "name": "Adobe After Effects",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11149,
+    "name": "Adobe Audition",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11150,
+    "name": "Adobe Bridge",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11151,
+    "name": "Adobe Dreamweaver",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10152,
+    "name": "Adobe Flash",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10150,
+    "name": "Adobe Illustrator",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11152,
+    "name": "Adobe InDesign",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11153,
+    "name": "Adobe Lightroom",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11154,
+    "name": "Adobe Premiere Pro",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10171,
+    "name": "Aerospace Engineering",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11267,
+    "name": "Agile development",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10175,
+    "name": "Aircraft Engine Technology",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10078,
+    "name": "Ajax",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11218,
+    "name": "Algorithms",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11219,
+    "name": "Alice",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10112,
+    "name": "Android",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11140,
+    "name": "Android studio",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 20917,
+    "name": "Angular",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11268,
+    "name": "Angular JS",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11220,
+    "name": "Apex",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11221,
+    "name": "Artificial Intelligence",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10111,
+    "name": "AS/400",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10068,
+    "name": "ASP",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10089,
+    "name": "Assembly",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11141,
+    "name": "Atom",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10148,
+    "name": "Auto-CAD",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10173,
+    "name": "Automotive Engineering",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11222,
+    "name": "Awk",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11124,
+    "name": "AWS (Amazon Web Services)",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10115,
+    "name": "Baan",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11223,
+    "name": "Bash",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11171,
+    "name": "Blogging",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11224,
+    "name": "Boostrap",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11172,
+    "name": "Business Intelligence",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10061,
+    "name": "C",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10072,
+    "name": "C#",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10062,
+    "name": "C++",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10207,
+    "name": "Cake PHP",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10163,
+    "name": "Client servicing",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11225,
+    "name": "Cloud Computing",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11173,
+    "name": "Coaching",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10063,
+    "name": "COBOL",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10208,
+    "name": "CodeIgniter",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11174,
+    "name": "Collaboration",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10059,
+    "name": "Community Development",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10169,
+    "name": "Computer aided technical design",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10183,
+    "name": "Construction Engineering",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10196,
+    "name": "Construction Management",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11175,
+    "name": "Consulting",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11176,
+    "name": "Content Marketing",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11177,
+    "name": "Content Strategy",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11164,
+    "name": "Controlling",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10149,
+    "name": "Corel Draw",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11178,
+    "name": "Creativity",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11179,
+    "name": "Critical Thinking",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10079,
+    "name": "CSS",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10086,
+    "name": "CVS",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11226,
+    "name": "D",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11227,
+    "name": "Dart",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11180,
+    "name": "Data Analysis",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11181,
+    "name": "Data Analytics",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11135,
+    "name": "Database Administration",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10128,
+    "name": "Database design",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11136,
+    "name": "Database Management",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11182,
+    "name": "Data Engineering",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11183,
+    "name": "Data Mining",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11184,
+    "name": "Data Science",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11185,
+    "name": "Data Warehousing",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10138,
+    "name": "DB/2",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10129,
+    "name": "Delphi",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11228,
+    "name": "Delphi/Object Pascal",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10178,
+    "name": "Designing Commercial Aircrafts",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11186,
+    "name": "Digital Marketing",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10219,
+    "name": "Django",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11166,
+    "name": "DNS",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10057,
+    "name": "Driver's licence",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11126,
+    "name": "Dropbox",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10223,
+    "name": "Drupal",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10134,
+    "name": "Eclipse",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10203,
+    "name": "Ecology",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11137,
+    "name": "Elasticsearch",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11119,
+    "name": "Empowerment of others",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10174,
+    "name": "Engineering Mechanics",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10185,
+    "name": "Ergonomics",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11229,
+    "name": "Erlang",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11187,
+    "name": "Event Planning",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11269,
+    "name": "Express",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11270,
+    "name": "Extreme programming",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11230,
+    "name": "F#",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11188,
+    "name": "Facilitation",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11155,
+    "name": "Filming",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11156,
+    "name": "Final Cut Pro",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10160,
+    "name": "Financial management",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10194,
+    "name": "Fire Safety Engineering",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10058,
+    "name": "First Aid",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10172,
+    "name": "Fluid Mechanics",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11231,
+    "name": "Fortran",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11232,
+    "name": "Foundation",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10080,
+    "name": "FoxPro",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10180,
+    "name": "Fuel Cells",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11233,
+    "name": "Full Stack development",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11234,
+    "name": "Game Development",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11142,
+    "name": "Git",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10085,
+    "name": "GIT",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11235,
+    "name": "Go",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11127,
+    "name": "Google Drive",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11236,
+    "name": "Groovy",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10214,
+    "name": "GTK",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11237,
+    "name": "Hadoop",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11189,
+    "name": "Handling Pressure",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11238,
+    "name": "Haskell",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11125,
+    "name": "Heroku",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11190,
+    "name": "Hiring",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11198,
+    "name": "HR induction",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10065,
+    "name": "HTML",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10087,
+    "name": "HTML 5",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11191,
+    "name": "Human Resources",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10198,
+    "name": "Hydrology",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10199,
+    "name": "Hydromechanics",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11157,
+    "name": "Image editing",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11158,
+    "name": "iMovie",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11192,
+    "name": "Information Security",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10167,
+    "name": "Internet usage",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10195,
+    "name": "Introductory Structural design",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10113,
+    "name": "iOS",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10104,
+    "name": "IP/MPLS",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10093,
+    "name": "IPX",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10073,
+    "name": "J#",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10066,
+    "name": "Java",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10211,
+    "name": "Java EE",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10069,
+    "name": "Javascript",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10221,
+    "name": "Joomla",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10216,
+    "name": "jQuery",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10074,
+    "name": "Jscript",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11239,
+    "name": "JSON",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11271,
+    "name": "Kanban",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11128,
+    "name": "Keynote",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11240,
+    "name": "LabVIEW",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11241,
+    "name": "Ladder Logic",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10162,
+    "name": "Language Teaching",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10095,
+    "name": "LAN (local area network)",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11272,
+    "name": "Laravel",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10158,
+    "name": "Leadership",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11242,
+    "name": "Less",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11169,
+    "name": "Linux",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11243,
+    "name": "Lisp",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11244,
+    "name": "Logo",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10123,
+    "name": "Lotus Notes/Domino",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11245,
+    "name": "Lua",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10179,
+    "name": "Machine Elements",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10110,
+    "name": "MacOS",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10166,
+    "name": "Mac usage",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10186,
+    "name": "Manufacturing Technology",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11193,
+    "name": "Market Research",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10182,
+    "name": "Mass and Heat Transfer",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10170,
+    "name": "Material Science",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11246,
+    "name": "MATLAB",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11247,
+    "name": "MDL",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10177,
+    "name": "Mechanical Process Engineering",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10188,
+    "name": "Mechanics",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11194,
+    "name": "Media Planning",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10081,
+    "name": "Mercury",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10137,
+    "name": "Microsoft Access",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10118,
+    "name": "Microsoft Dynamics",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11129,
+    "name": "Microsoft Excel",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11130,
+    "name": "Microsoft Powerpoint",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10139,
+    "name": "Microsoft SQL Server",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11131,
+    "name": "Microsoft Word",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10105,
+    "name": "Microwave Transmission",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11248,
+    "name": "Mobile Development",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10145,
+    "name": "MongoDB",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10108,
+    "name": "MS DOS",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10124,
+    "name": "MS Exchange",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10143,
+    "name": "MySQL",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11195,
+    "name": "Negotiation",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10213,
+    "name": ".NET",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10135,
+    "name": "Netbeans",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10100,
+    "name": "Network Design",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10101,
+    "name": "Network security",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10218,
+    "name": "Node.js",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10144,
+    "name": "NoSQL",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10125,
+    "name": "Novell Groupwise",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10092,
+    "name": "Novell netware",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11143,
+    "name": "NPM",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10088,
+    "name": "Objective C",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11343,
+    "name": "Object Oriented Programming",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11249,
+    "name": "OpenEdge ABL",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10184,
+    "name": "Operations Research",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10082,
+    "name": "OPS5",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10102,
+    "name": "Optical fibers",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10121,
+    "name": "Oracle",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10140,
+    "name": "Oracle Database",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10154,
+    "name": "Organisational Management",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10130,
+    "name": "Other Development Tools",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11132,
+    "name": "Pages",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10064,
+    "name": "Pascal",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10116,
+    "name": "PeopleSoft",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10067,
+    "name": "Perl",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10151,
+    "name": "Photoshop",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10076,
+    "name": "PHP",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11250,
+    "name": "PL/SQL",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10142,
+    "name": "PostgreSQL",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10131,
+    "name": "Powerbuilder",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10159,
+    "name": "Presentation skills",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11196,
+    "name": "Problem Solving",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10201,
+    "name": "Process Engineering",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10156,
+    "name": "Project Management",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10083,
+    "name": "Prolog",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10217,
+    "name": "Protype",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11197,
+    "name": "Public Relations",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10077,
+    "name": "Python",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11251,
+    "name": "Q",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10215,
+    "name": "Qt",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11252,
+    "name": "R",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11273,
+    "name": "React JS",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11199,
+    "name": "Recruiting",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11200,
+    "name": "Relationship Management",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10200,
+    "name": "Renewable Energies",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11201,
+    "name": "Research",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11202,
+    "name": "Risk Management",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10176,
+    "name": "Rotor Technology",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11167,
+    "name": "Router setup",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11253,
+    "name": "RPG (OS/400)",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10084,
+    "name": "Ruby",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10210,
+    "name": "Ruby on Rails",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11254,
+    "name": "Rust",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10161,
+    "name": "Sales",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10119,
+    "name": "Salesforce",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10117,
+    "name": "SAP",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11255,
+    "name": "SAS",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11256,
+    "name": "SASS",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11257,
+    "name": "Scala",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11258,
+    "name": "Scheme",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11259,
+    "name": "Scratch",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11274,
+    "name": "SCRUM",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11203,
+    "name": "Search Engine Optimization (SEO)",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11120,
+    "name": "Self Awareness",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11204,
+    "name": "Self-Confidence",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11160,
+    "name": "Sharepoint",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10120,
+    "name": "Siebel",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11161,
+    "name": "Slack",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11205,
+    "name": "Social Media Management",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11260,
+    "name": "Software Engineering",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10197,
+    "name": "Soil Mechanics",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10191,
+    "name": "Solid Construction",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11121,
+    "name": "Solution Orientation",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11159,
+    "name": "Sony Vegas",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11261,
+    "name": "SPSS",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10071,
+    "name": "SQL",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11138,
+    "name": "SQLite",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11133,
+    "name": "Squarespace",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11262,
+    "name": "Stata",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10189,
+    "name": "Static",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10192,
+    "name": "Steel Construction",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11206,
+    "name": "Strategic Planning",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11207,
+    "name": "Strategy",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10212,
+    "name": "Struts",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11144,
+    "name": "Sublime",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11165,
+    "name": "Supply Chain management",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11263,
+    "name": "Swift",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10141,
+    "name": "Sybase",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10209,
+    "name": "Symfony",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11139,
+    "name": "Tableau",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10094,
+    "name": "TCP/IP",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10155,
+    "name": "Team Management",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11208,
+    "name": "Technical Support",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10193,
+    "name": "Technology of Building Materials",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10181,
+    "name": "Thermodynamics",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11209,
+    "name": "Time Management",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10157,
+    "name": "Training",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11264,
+    "name": "Transact-SQL",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11210,
+    "name": "UI design",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10099,
+    "name": "UMTS/GSM network management",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10107,
+    "name": "UNIX",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10090,
+    "name": "Unix shell scripting",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11265,
+    "name": "User Testing",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11211,
+    "name": "UX design",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11266,
+    "name": "VBScript",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11145,
+    "name": "Vim",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10075,
+    "name": "Visual Basic",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10133,
+    "name": "Visual C++",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11215,
+    "name": "(Visual) FoxPro",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10132,
+    "name": "Visual Studio",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10098,
+    "name": "Voice - IP Telephony (VoIP)",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10096,
+    "name": "WAN (wide area network)",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10097,
+    "name": "WAP (Wireless Application Protocol)",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10202,
+    "name": "Waste & Water Management",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10103,
+    "name": "WDM",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11212,
+    "name": "Web Content",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11168,
+    "name": "WiFi network setup",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10109,
+    "name": "Windows",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10165,
+    "name": "Windows PC usage",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11134,
+    "name": "Wix",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10190,
+    "name": "Wood Construction",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10222,
+    "name": "Wordpress",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11213,
+    "name": "Work Ethic",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11162,
+    "name": "Workplace",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11122,
+    "name": "World citizenship",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11214,
+    "name": "Writing",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11146,
+    "name": "Xamarin",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11147,
+    "name": "Xcode",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10070,
+    "name": "XML",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10206,
+    "name": "Yii",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 10205,
+    "name": "Zend",
+    "matching_with_opportunity": null
+  },
+  {
+    "id": 11163,
+    "name": "Zoho",
+    "matching_with_opportunity": null
+  }
+]
+
+----- FILE: matcher/app/data/fake_catalog.json -----
+[
+  {"opportunity_id": 1340614, "programme_kind": "talent", "title": "Sales at OZSAYIN",
+   "is_open": true, "available_openings": 2, "duration_weeks": 8, "cost_total": null,
+   "requirements": [
+     {"kind": "background", "constant_id": 10253, "option": "required"},
+     {"kind": "skill", "constant_id": 10161, "option": "required"},
+     {"kind": "language", "constant_id": 10018, "option": "required"},
+     {"kind": "nationality", "constant_id": 10463, "option": "required"}]},
+  {"opportunity_id": 2, "programme_kind": "volunteer", "title": "Teach kids",
+   "is_open": true, "available_openings": 1, "duration_weeks": 6, "cost_total": 300,
+   "requirements": [{"kind": "language", "constant_id": 10018, "option": "required"}]}
+]
+
+----- FILE: matcher/app/deps.py -----
+from __future__ import annotations
+
+import json
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
+
+from app.config import get_settings
+from app.repo.catalog_reader import DbCatalogReader, FakeCatalogReader
+
+DATA_DIR = Path(__file__).parent / "data"
+FILE_PREFIX = "_lists_"
+
+
+@lru_cache(maxsize=1)
+def load_dictionaries() -> dict[str, list[dict[str, Any]]]:
+    """Читает справочники из app/data один раз; дальше отдаёт их из памяти."""
+    return {
+        path.stem.removeprefix(FILE_PREFIX): json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted(DATA_DIR.glob(f"{FILE_PREFIX}*.json"))
+    }
+
+
+@lru_cache(maxsize=1)
+def get_catalog_reader():
+    s = get_settings()
+    if s.catalog_source == "db":
+        return DbCatalogReader(s.database_url)
+    return FakeCatalogReader(s.fake_catalog_path)
+
+----- FILE: matcher/app/domain/__init__.py -----
+[binary file skipped]
+
+
+----- FILE: matcher/app/domain/features.py -----
+import math
+from bisect import bisect_left
+from datetime import date
+from typing import Dict, List, Set
+
+from app.domain.models import Opportunity
+from app.domain.profile import Profile
+
+OPTION_WT = {"required": 1.0, "preferred": 0.5}
+NEUTRAL = 0.5          # «не знаем» = середина, ни плюс ни минус
+
+
+def coverage(reqs: Dict[int, str], have: Set[int]) -> float:
+    """Доля требований (с весом required/preferred), которую закрывает кандидат."""
+    if not reqs:
+        return NEUTRAL
+    total = sum(OPTION_WT.get(opt, 1.0) for opt in reqs.values())
+    got = sum(OPTION_WT.get(opt, 1.0) for cid, opt in reqs.items() if cid in have)
+    return got / total
+
+
+def language_score(o: Opportunity, langs: Set[int]) -> float:
+    preferred = {cid for cid, opt in o.languages.items() if opt == "preferred"}
+    if not preferred:
+        return NEUTRAL
+    return len(preferred & langs) / len(preferred)
+
+
+def city_score(o: Opportunity, p: Profile) -> float:
+    if not p.preferred_lc_ids:
+        return NEUTRAL
+    return 1.0 if o.lc_id in p.preferred_lc_ids else 0.0
+
+
+def duration_score(o: Opportunity, p: Profile) -> float:
+    if o.duration_weeks is None or (p.min_weeks is None and p.max_weeks is None):
+        return NEUTRAL
+    lo = p.min_weeks if p.min_weeks is not None else 0
+    hi = p.max_weeks if p.max_weeks is not None else 10**6
+    d = o.duration_weeks
+    dist = lo - d if d < lo else d - hi if d > hi else 0
+    return max(0.0, 1 - dist / 8)          # спад до 0 на расстоянии 8 недель
+
+
+def cost_score(o: Opportunity, p: Profile) -> float:
+    if o.cost_total == 0:
+        return 1.0
+    if o.cost_total is None or p.max_budget_eur is None or o.cost_currency not in (None, "EUR"):
+        return NEUTRAL
+    return 1.0 if o.cost_total <= p.max_budget_eur else 0.0
+
+
+def freshness_score(o: Opportunity, today: date) -> float:
+    if o.date_opened is None:
+        return NEUTRAL
+    return math.exp(-(today - o.date_opened).days / 90)
+
+
+def chance_scores(opps: List[Opportunity], a: float = 10.0) -> Dict[int, float]:
+    """Шанс на принятие: сглаженная доля принятых × доля свободных мест, затем процентиль."""
+    if not opps:
+        return {}
+    apps = sum(o.applicants_count for o in opps)
+    p0 = sum(o.accepted_count for o in opps) / apps if apps else 0.0
+    raw = {}
+    for o in opps:
+        rate = (o.accepted_count + a * p0) / (o.applicants_count + a)
+        free = o.available_openings / o.openings if o.openings else 1.0
+        raw[o.opportunity_id] = rate * free
+    values = sorted(raw.values())
+    if values[0] == values[-1]:
+        return {oid: NEUTRAL for oid in raw}
+    n = len(values)
+    return {oid: bisect_left(values, v) / (n - 1) for oid, v in raw.items()}
+
+
+def compute_features(o: Opportunity, p: Profile, langs: Set[int],
+                     chance: float, today: date) -> Dict[str, float]:
+    return {
+        "background": coverage(o.backgrounds, p.background_ids),
+        "skill": coverage(o.skills, p.skill_ids),
+        "language": language_score(o, langs),
+        "city": city_score(o, p),
+        "duration": duration_score(o, p),
+        "cost": cost_score(o, p),
+        "chance": chance,
+        "freshness": freshness_score(o, today),
+    }
+
+----- FILE: matcher/app/domain/filters.py -----
+from datetime import date
+from typing import List, Optional
+
+from app.domain.models import Opportunity
+from app.domain.profile import Profile
+from app.schemas import MatchFilters
+
+
+def hard_filter(opps: List[Opportunity], p: Profile, filters: MatchFilters,
+                min_english: str, today: Optional[date] = None) -> List[Opportunity]:
+    today = today or date.today()
+    langs = p.languages_for(min_english)
+    out = []
+    for o in opps:
+        # открыта и есть места
+        if not o.is_open or o.available_openings <= 0:
+            continue
+        # срок подачи не прошёл
+        if o.applications_close_date and o.applications_close_date < today:
+            continue
+        # все ОБЯЗАТЕЛЬНЫЕ языки вакансии есть у кандидата
+        required = {cid for cid, opt in o.languages.items() if opt == "required"}
+        if not required <= langs:
+            continue
+        # гражданство (если кандидат его не указал, не режем)
+        if o.nationalities and p.nationality_id is not None and p.nationality_id not in o.nationalities:
+            continue
+        # уровень учёбы (если обе стороны его знают)
+        if o.study_levels and p.study_level_ids and not (o.study_levels & p.study_level_ids):
+            continue
+        # бюджет: платная вакансия и кандидат не готов платить или не укладывается
+        if o.cost_total and o.cost_total > 0:
+            if p.willing_to_pay is False:
+                continue
+            if (p.max_budget_eur is not None and o.cost_currency in (None, "EUR")
+                    and o.cost_total > p.max_budget_eur):
+                continue
+        # фильтры из запроса
+        if filters.country_codes and o.country_code not in filters.country_codes:
+            continue
+        if o.opportunity_id in filters.exclude_opportunity_ids:
+            continue
+        out.append(o)
+    return out
+
+----- FILE: matcher/app/domain/models.py -----
+from dataclasses import dataclass, field
+from datetime import date
+from typing import Dict, Optional, Set
+
+@dataclass
+class Opportunity:
+    opportunity_id: int
+    programme_kind: str                      # talent | teacher | volunteer
+    title: str = ""
+    family_key: Optional[str] = None
+    country_code: Optional[str] = None
+    lc_id: Optional[int] = None
+    is_open: bool = True
+    openings: int = 0
+    available_openings: int = 1
+    applicants_count: int = 0
+    accepted_count: int = 0
+    date_opened: Optional[date] = None
+    applications_close_date: Optional[date] = None
+    duration_weeks: Optional[int] = None
+    cost_total: Optional[float] = None
+    cost_currency: Optional[str] = None
+    # требования: constant_id -> option ("required" | "preferred")
+    backgrounds: Dict[int, str] = field(default_factory=dict)
+    skills: Dict[int, str] = field(default_factory=dict)
+    languages: Dict[int, str] = field(default_factory=dict)
+    study_levels: Set[int] = field(default_factory=set)
+    nationalities: Set[int] = field(default_factory=set)
+
+----- FILE: matcher/app/domain/profile.py -----
+from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
+from typing import List, Optional, Set
+
+import yaml
+
+from app.schemas import ProfileSnapshot
+
+CEFR = ["A1", "A2", "B1", "B2", "C1", "C2"]
+ENGLISH_ID = 10018
+
+
+@lru_cache
+def load_taxonomy() -> dict:
+    with open(Path(__file__).parent / "taxonomy.yaml", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+@dataclass
+class Profile:
+    programmes: List[str]
+    background_ids: Set[int]
+    skill_ids: Set[int]
+    language_ids: Set[int]            # все языки, кроме английского
+    english_level: Optional[str]
+    study_level_ids: Set[int]
+    nationality_id: Optional[int]
+    min_weeks: Optional[int]
+    max_weeks: Optional[int]
+    max_budget_eur: Optional[float]
+    willing_to_pay: Optional[bool]
+    preferred_lc_ids: Set[int]
+
+    def languages_for(self, min_english: str) -> Set[int]:
+        """Английский засчитываем, только если уровень не ниже порога программы."""
+        ids = set(self.language_ids)
+        if self.english_level and CEFR.index(self.english_level) >= CEFR.index(min_english):
+            ids.add(ENGLISH_ID)
+        return ids
+
+
+def _sphere(name: str, tax: dict) -> dict:
+    spheres = tax["spheres"]
+    if name in spheres:
+        return spheres[name]
+    for key, val in spheres.items():          # teaching_* ловит teaching_kids и т.п.
+        if key.endswith("*") and name.startswith(key[:-1]):
+            return val
+    return {}
+
+
+def build_profile(s: ProfileSnapshot) -> Profile:
+    tax = load_taxonomy()
+    study = s.study or {}
+    names = list(s.spheres) + list(s.activities) + ([study["field"]] if study.get("field") else [])
+
+    bg, sk = set(), set()
+    for name in names:
+        m = _sphere(name, tax)
+        bg.update(m.get("backgrounds", []))
+        sk.update(m.get("skills", []))
+
+    level = study.get("level")
+    dur = s.duration or {}
+    fin = s.financial or {}
+    return Profile(
+        programmes=list(s.programmes),
+        background_ids=bg,
+        skill_ids=sk,
+        language_ids={tax["languages"][c] for c in s.other_languages if c in tax["languages"]},
+        english_level=s.english_level,
+        study_level_ids={tax["study_levels"][level]} if level in tax["study_levels"] else set(),
+        nationality_id=tax["nationalities"].get(s.nationality) if s.nationality else None,
+        min_weeks=dur.get("min_weeks"),
+        max_weeks=dur.get("max_weeks"),
+        max_budget_eur=fin.get("max_budget_eur"),
+        willing_to_pay=fin.get("willing_to_pay"),
+        preferred_lc_ids=set(s.preferred_lc_ids),
+    )
+
+----- FILE: matcher/app/domain/scoring.py -----
+from datetime import date
+from functools import lru_cache
+from pathlib import Path
+from typing import Dict, List, Optional, Set
+
+import yaml
+
+from app.domain.features import chance_scores, compute_features
+from app.domain.models import Opportunity
+from app.domain.profile import Profile
+from app.schemas import MatchItem, ProgrammeGroup, Reason
+
+REASONS = {
+    "background": ("background_match", "Ваше образование подходит под требования"),
+    "skill": ("skill_match", "Ваши навыки совпадают с нужными"),
+    "language": ("language_preferred", "Вы знаете желательные языки"),
+    "city": ("city_pref", "Город из ваших предпочтений"),
+    "duration": ("duration_fit", "Длительность в вашем диапазоне"),
+    "cost": ("cost_fit", "Укладывается в бюджет"),
+    "chance": ("chance_high", "Хорошие шансы на принятие"),
+    "freshness": ("fresh", "Вакансия открылась недавно"),
+}
+
+
+@lru_cache
+def load_weights() -> dict:
+    with open(Path(__file__).resolve().parent.parent / "weights.yaml", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+def label(score: float, excellent: float, good: float) -> str:
+    return "excellent" if score >= excellent else "good" if score >= good else "fair"
+
+
+def make_reasons(f: Dict[str, float], w: Dict[str, float]) -> List[Reason]:
+    pos = sorted(((w[k] * v, k) for k, v in f.items() if w.get(k, 0) > 0 and v >= 0.7), reverse=True)
+    out = [Reason(code=REASONS[k][0], polarity="positive", weight=round(c, 3), text=REASONS[k][1])
+           for c, k in pos[:3]]
+    if w.get("chance", 0) > 0 and f["chance"] < 0.3:
+        out.append(Reason(code="chance_low", polarity="negative",
+                          weight=round(w["chance"] * (1 - f["chance"]), 3),
+                          text="Высокая конкуренция на эту вакансию"))
+    return out
+
+
+def rank_programme(opps: List[Opportunity], p: Profile, kind: str, langs: Set[int],
+                   limit: int, explain: bool, excellent: float, good: float,
+                   today: Optional[date] = None) -> ProgrammeGroup:
+    today = today or date.today()
+    w = load_weights()[kind]
+    chance = chance_scores(opps)
+
+    scored = []
+    for o in opps:
+        f = compute_features(o, p, langs, chance[o.opportunity_id], today)
+        u = sum(w.get(k, 0) * v for k, v in f.items())
+        scored.append((u, o, f))
+    scored.sort(key=lambda t: (-t[0], t[1].opportunity_id))   # детерминированный порядок
+
+    # схлопывание семей: от каждой семьи остаётся лучшая вакансия
+    best, siblings = [], {}
+    for u, o, f in scored:
+        key = o.family_key or f"id:{o.opportunity_id}"
+        if key in siblings:
+            siblings[key] += 1
+            continue
+        siblings[key] = 0
+        best.append((u, o, f, key))
+
+    items = [
+        MatchItem(
+            opportunity_id=o.opportunity_id, rank=rank, score=round(u, 4),
+            label=label(u, excellent, good), family_key=o.family_key,
+            siblings_count=siblings[key],
+            reasons=make_reasons(f, w) if explain else [],
+            breakdown={k: round(v, 4) for k, v in f.items()},
+        )
+        for rank, (u, o, f, key) in enumerate(best[:limit], start=1)
+    ]
+    return ProgrammeGroup(programme_kind=kind, total_candidates=len(opps), items=items)
+
+----- FILE: matcher/app/domain/taxonomy.yaml -----
+spheres:              # сфера или активность -> constant_id
+  marketing:  {backgrounds: [10253], skills: []}
+  sales:      {backgrounds: [21677], skills: [10161]}   # 21677 из ТЗ, проверить в backgrounds.json
+  teaching_*: {backgrounds: [10241], skills: [10162]}   # * значит любое teaching_...
+study_levels:
+  school: 10782
+  bachelor: 10785
+languages:            # other_languages -> constant_id
+  en: 10018
+  ru: 10043
+  es: 10048
+  pt: 10041
+nationalities:        # код страны -> constant_id
+  RU: 10463
+  AZ: 10353
+
+----- FILE: matcher/app/main.py -----
+from __future__ import annotations
+
+from fastapi import FastAPI
+
+from .routers import dictionaries, health, match
+
+app = FastAPI(title="AIESEC matcher", version="0.1.0")
+app.include_router(health.router)
+app.include_router(match.router)
+app.include_router(dictionaries.router)
+
+
+----- FILE: matcher/app/repo/__init__.py -----
+[binary file skipped]
+
+
+----- FILE: matcher/app/repo/catalog_reader.py -----
+import json
+from datetime import date
+from typing import Dict, List, Optional
+
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine
+
+from app.domain.models import Opportunity
+
+KIND_TO_FIELD = {"background": "backgrounds", "skill": "skills", "language": "languages"}
+
+
+def _d(v) -> Optional[date]:
+    if v is None or isinstance(v, date):
+        return v
+    return date.fromisoformat(str(v)[:10])
+
+
+def build_opportunity(row: dict, reqs: List[dict]) -> Opportunity:
+    """Строка вью opportunity_v1 + её строки из opportunity_requirement_v1 -> Opportunity."""
+    opp = Opportunity(
+        opportunity_id=int(row["opportunity_id"]),
+        programme_kind=row["programme_kind"],
+        title=row.get("title") or "",
+        family_key=row.get("family_key"),
+        country_code=row.get("country_code"),
+        lc_id=row.get("lc_id"),
+        is_open=bool(row.get("is_open", True)),
+        openings=row.get("openings") or 0,
+        available_openings=row.get("available_openings") or 0,
+        applicants_count=row.get("applicants_count") or 0,
+        accepted_count=row.get("accepted_count") or 0,
+        date_opened=_d(row.get("date_opened")),
+        applications_close_date=_d(row.get("applications_close_date")),
+        duration_weeks=row.get("duration_weeks"),
+        cost_total=float(row["cost_total"]) if row.get("cost_total") is not None else None,
+        cost_currency=row.get("cost_currency"),
+    )
+    for r in reqs:
+        cid = int(r["constant_id"])
+        kind = r["kind"]
+        if kind in KIND_TO_FIELD:
+            getattr(opp, KIND_TO_FIELD[kind])[cid] = r.get("option") or "required"
+        elif kind == "study_level":
+            opp.study_levels.add(cid)
+        elif kind == "nationality":
+            opp.nationalities.add(cid)
+    return opp
+
+
+class FakeCatalogReader:
+    """Вакансии из JSON-файла: для разработки, пока нет вью catalog."""
+
+    def __init__(self, path: str):
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        self._all = [build_opportunity(o, o.get("requirements", [])) for o in data]
+
+    def list_open(self, programme_kind: str) -> List[Opportunity]:
+        return [o for o in self._all
+                if o.programme_kind == programme_kind and o.is_open and o.available_openings > 0]
+
+
+class DbCatalogReader:
+    """Чтение из вью catalog.* под ролью matcher_writer (только SELECT)."""
+
+    def __init__(self, database_url: str):
+        # Драйвер должен совпадать с тем, что реально установлен в образе
+        # (psycopg[binary] в matcher.txt). SQLAlchemy 2.x по умолчанию выбирает psycopg.
+        if database_url.startswith("postgresql+asyncpg://"):
+            database_url = database_url.replace("postgresql+asyncpg://", "postgresql+psycopg://", 1)
+        elif database_url.startswith("postgresql://"):
+            database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+        self._engine: Engine = create_engine(
+            database_url, pool_size=5, max_overflow=2, pool_pre_ping=True, future=True,
+        )
+
+    def list_open(self, programme_kind: str) -> List[Opportunity]:
+        with self._engine.connect() as conn:
+            conn.execute(text("SET TRANSACTION READ ONLY"))
+            rows = conn.execute(text("""
+                SELECT * FROM catalog.opportunity_v1
+                WHERE programme_kind = :k AND is_open AND available_openings > 0
+            """), {"k": programme_kind}).mappings().all()
+            ids = [r["opportunity_id"] for r in rows]
+            reqs: Dict[int, List[dict]] = {i: [] for i in ids}
+            if ids:
+                for r in conn.execute(text("""
+                    SELECT opportunity_id, kind, constant_id, option
+                    FROM catalog.opportunity_requirement_v1
+                    WHERE opportunity_id = ANY(:ids)
+                """), {"ids": ids}).mappings():
+                    reqs[r["opportunity_id"]].append(dict(r))
+        return [build_opportunity(dict(r), reqs[r["opportunity_id"]]) for r in rows]
+
+----- FILE: matcher/app/routers/__init__.py -----
+[binary file skipped]
+
+
+----- FILE: matcher/app/routers/dictionaries.py -----
+from __future__ import annotations
+
+from typing import Literal
+
+from app.deps import load_dictionaries
+from app.schemas import Dictionary
+from fastapi import APIRouter
+
+router = APIRouter()
+
+@router.get("/dictionaries", response_model=Dictionary, tags=["service"])
+def dictionary() -> Dictionary:
+    return Dictionary
+
+@router.get("/dictionaries/{name}", response_model=list[Dictionary], tags=["service"])
+def get_dictionary_name(name:Literal["skills","languages","backgrounds"]):
+    return load_dictionaries()[name]
+
+
+----- FILE: matcher/app/routers/health.py -----
+from __future__ import annotations
+
+from fastapi import APIRouter
+
+from ..schemas import HealthResponse
+
+router = APIRouter()
+
+
+@router.get("/health", response_model=HealthResponse, tags=["service"])
+def health() -> HealthResponse:
+    return HealthResponse(status="ok")
+
+
+----- FILE: matcher/app/routers/match.py -----
+import logging
+import time
+from typing import Dict
+
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.config import Settings, get_settings
+from app.deps import get_catalog_reader
+from app.domain.filters import hard_filter
+from app.domain.profile import build_profile
+from app.domain.scoring import rank_programme
+from app.schemas import MatchRequest, MatchResponse
+
+log = logging.getLogger("matcher")
+router = APIRouter(prefix="/v1", tags=["match"])
+STRATEGIES = {"weighted_v1"}
+
+
+def route_programmes(req: MatchRequest) -> Dict[str, float]:
+    """Роутер v0 из ТЗ 2.2: какие программы искать и с каким приором."""
+    explicit = req.filters.programme_kinds or req.profile.programmes
+    if explicit:
+        return {k: 1.0 for k in dict.fromkeys(explicit)}       # без дублей, порядок сохранён
+    kinds = []
+    spheres = req.profile.spheres
+    if any(s.startswith("teaching_") for s in spheres):
+        kinds.append("teacher")
+    if any(not s.startswith("teaching_") for s in spheres):
+        kinds.append("talent")
+    if req.profile.activities:
+        kinds.append("volunteer")
+    return {k: round(1 / len(kinds), 3) for k in kinds}
+
+
+@router.post("/match", response_model=MatchResponse)
+def match(req: MatchRequest,
+          reader=Depends(get_catalog_reader),
+          s: Settings = Depends(get_settings)):
+    started = time.perf_counter()
+
+    if req.strategy and req.strategy not in STRATEGIES:
+        raise HTTPException(422, detail={"type": "unknown-strategy"})
+    prior = route_programmes(req)
+    if not prior:
+        raise HTTPException(422, detail={"type": "profile-incomplete", "missing": ["programmes"]})
+
+    p = build_profile(req.profile)
+    groups = []
+    for kind in prior:
+        min_en = s.min_english.get(kind, "B1")
+        try:
+            opps = reader.list_open(kind)
+        except Exception as e:                       # БД недоступна
+            log.exception("catalog read failed kind=%s", kind)
+            raise HTTPException(503, detail={"type": "catalog-unavailable"}) from e
+        cands = hard_filter(opps, p, req.filters, min_en)
+        groups.append(rank_programme(cands, p, kind, p.languages_for(min_en),
+                                     req.limit_per_programme, req.explain,
+                                     s.label_excellent, s.label_good))
+
+    took = int((time.perf_counter() - started) * 1000)
+    log.info("match profile_id=%s kinds=%s took_ms=%s", req.profile_id, list(prior), took)
+    return MatchResponse(request_id=req.request_id, profile_id=req.profile_id,
+                         programme_prior=prior, took_ms=took, groups=groups)
+
+----- FILE: matcher/app/schemas.py -----
+from typing import Any, Dict, List, Literal, Optional
+from pydantic import BaseModel, ConfigDict, Field
+
+ProgrammeKind = Literal["talent", "teacher", "volunteer"]
+
+class ProfileSnapshot(BaseModel):
+    model_config = ConfigDict(extra="allow")   # новые поля бэка не ломают нас
+    programmes: List[ProgrammeKind] = []
+    english_level: Optional[Literal["A1","A2","B1","B2","C1","C2"]] = None
+    study: Optional[Dict[str, Any]] = None
+    work_experience: Optional[str] = None
+    spheres: List[str] = []
+    activities: List[str] = []
+    desired_countries: List[str] = []
+    duration: Optional[Dict[str, int]] = None
+    start_window: Optional[str] = None
+    financial: Optional[Dict[str, Any]] = None
+    nationality: Optional[str] = None
+    preferred_lc_ids: List[int] = []
+    other_languages: List[str] = []
+
+class MatchFilters(BaseModel):
+    programme_kinds: List[ProgrammeKind] = []
+    country_codes: List[str] = []
+    exclude_opportunity_ids: List[int] = []
+
+class MatchRequest(BaseModel):
+    request_id: Optional[str] = None     # бэк пока не шлёт
+    profile_id: Optional[str] = None
+    profile: ProfileSnapshot
+    filters: MatchFilters = MatchFilters()
+    strategy: Optional[str] = None
+    limit_per_programme: int = Field(10, ge=1, le=50)
+    explain: bool = True
+
+class Reason(BaseModel):
+    code: str
+    polarity: Literal["positive", "negative"]
+    weight: float
+    text: str
+
+class MatchItem(BaseModel):
+    opportunity_id: int
+    rank: int
+    score: float
+    label: Literal["excellent", "good", "fair"]
+    reasons: List[Reason] = []
+    breakdown: Dict[str, float] = {}
+    family_key: Optional[str] = None
+    siblings_count: int = 0
+
+class ProgrammeGroup(BaseModel):
+    programme_kind: ProgrammeKind
+    total_candidates: int
+    items: List[MatchItem]
+
+class MatchResponse(BaseModel):
+    request_id: Optional[str] = None
+    profile_id: Optional[str] = None
+    strategy: str = "weighted_v1"
+    programme_prior: Dict[str, float] = {}
+    degraded: List[str] = []
+    took_ms: int = 0
+    groups: List[ProgrammeGroup] = []
+
+class Dictionary(BaseModel):
+    id: int
+    name: str
+
+class HealthResponse(BaseModel):
+    status: str = "ok"
+
+----- FILE: matcher/app/weights.yaml -----
+talent:    {background: 0.35, skill: 0.15, language: 0.15, city: 0.0,  duration: 0.05, cost: 0.10, chance: 0.15, freshness: 0.05}
+teacher:   {background: 0.25, skill: 0.0,  language: 0.25, city: 0.0,  duration: 0.10, cost: 0.10, chance: 0.20, freshness: 0.10}
+volunteer: {background: 0.25, skill: 0.0,  language: 0.05, city: 0.20, duration: 0.20, cost: 0.10, chance: 0.15, freshness: 0.05}
+
+----- FILE: matcher/pytest.ini -----
+[pytest]
+testpaths = tests
+pythonpath = .
+addopts =
+    -ra
+    --strict-markers
+    --cov=app
+    --cov-report=term-missing:skip-covered
+    --cov-report=html:htmlcov
+    --cov-report=xml:coverage.xml
+    --cov-fail-under=75
+===================================================================
+### DIRECTORY: parser
+===================================================================
+
+----- FILE: parser/.coveragerc -----
+[run]
+source = app
+omit =
+    app/main.py
+    app/runtime.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
+    raise NotImplementedError
+    if TYPE_CHECKING:
+
+----- FILE: parser/alembic.ini -----
+[alembic]
+script_location = migrations
+prepend_sys_path = .
+version_path_separator = os
+
+[loggers]
+keys = root,sqlalchemy,alembic
+
+[handlers]
+keys = console
+
+[formatters]
+keys = generic
+
+[logger_root]
+level = WARN
+handlers = console
+qualname =
+
+[logger_sqlalchemy]
+level = WARN
+handlers =
+qualname = sqlalchemy.engine
+
+[logger_alembic]
+level = INFO
+handlers =
+qualname = alembic
+
+[handler_console]
+class = StreamHandler
+args = (sys.stderr,)
+level = NOTSET
+formatter = generic
+
+[formatter_generic]
+format = %(levelname)-5.5s [%(name)s] %(message)s
+datefmt = %H:%M:%S
+
+----- FILE: parser/app/__init__.py -----
+[binary file skipped]
+
+
+----- FILE: parser/app/api/__init__.py -----
+[binary file skipped]
+
+
+----- FILE: parser/app/api/admin.py -----
+from __future__ import annotations
+
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+
+from ..client import AiesecError, AuthError
+from ..runtime import client, service, settings, targets
+from ..runtime import client, service, persist_tokens
+from ..tokens import clean_token as _clean, token_status as _token_status_impl
+from .schemas import TokenIn
+
+router = APIRouter()
+
+
+def _token_status() -> dict:
+    return _token_status_impl(client, service)
+
+
+@router.get("/admin/targets", tags=["admin"])
+def show_targets():
+    return {
+        "countries": targets.countries,
+        "turkey_mc_id": targets.turkey_mc_id,
+        "turkey_cities": targets.turkey_cities,
+        "base_filters": targets.base_filters,
+    }
+
+
+@router.get("/admin/offices", tags=["admin"])
+def find_offices(q: str = Query(..., min_length=2)):
+    try:
+        return client.search_offices(q)
+    except AiesecError as e:
+        raise HTTPException(502, str(e))
+
+
+@router.get("/admin/schema/filters", tags=["admin"])
+def schema_filters():
+    try:
+        s = client.schema()
+        return {
+            "query": s.field,
+            "item_type": s.item_type,
+            "filters": sorted(s.filters),
+            "broken_fields": sorted(client.broken_fields),
+            "incremental_filter_ok": client.supports_range_filter(settings.incremental_date_filter),
+        }
+    except AiesecError as e:
+        raise HTTPException(502, str(e))
+
+
+@router.get("/admin/token", tags=["admin"])
+def token_status():
+    return _token_status()
+
+
+@router.post("/admin/token/check", tags=["admin"])
+def token_check():
+    try:
+        ok, err = client.check_token()
+    except AiesecError as e:
+        raise HTTPException(502, str(e))
+    return {"valid": ok, "error": err, **_token_status()}
+
+
+@router.post("/admin/token/refresh", tags=["admin"])
+def token_refresh_now():
+    if not client.can_refresh:
+        raise HTTPException(409, "Автообновление не настроено (нет refresh_token или client_id/secret)")
+    try:
+        client.refresh_after_401(client.token)
+    except AuthError as e:
+        raise HTTPException(422, str(e))
+    except AiesecError as e:
+        raise HTTPException(502, str(e))
+    return _token_status()
+
+
+@router.put("/admin/token", tags=["admin"])
+def put_token(body: TokenIn, bg: BackgroundTasks):
+    was_failing = client.auth_ok is False
+    verified = None
+
+    if body.refresh_token:
+        if not client.refresher:
+            raise HTTPException(422, "Автообновление не настроено: задайте AIESEC_CLIENT_ID и AIESEC_CLIENT_SECRET")
+        try:
+            client.refresh_with(_clean(body.refresh_token))
+        except AuthError as e:
+            raise HTTPException(422, f"{e}")
+        except AiesecError as e:
+            raise HTTPException(502, f"Не удалось обменять refresh_token: {e}")
+        verified = True
+    else:
+        new = _clean(body.token)
+        if len(new) < 10:
+            raise HTTPException(422, "Токен слишком короткий после очистки")
+        if body.verify:
+            try:
+                ok, err = client.check_token(new)
+            except AiesecError as e:
+                raise HTTPException(
+                    502,
+                    f"Не удалось проверить токен: {e}. Старый токен не менялся. "
+                    f"Повторите позже или передайте verify=false.",
+                )
+            if not ok:
+                raise HTTPException(422, f"AIESEC отклонил новый токен, оставлен прежний. Ответ: {err}")
+            verified = True
+        client.set_token(new, source="api", verified=verified)
+        persist_tokens(client)
+
+    triggered = None
+    if body.run_sync and (was_failing or not service.has_bootstrapped()):
+        kind = "incremental" if service.has_bootstrapped() else "full"
+        run_id = service.try_start(kind)
+        if run_id is not None:
+            bg.add_task(service.execute, run_id, kind)
+            triggered = {"run_id": run_id, "kind": kind}
+    return {**_token_status(), "verified": verified, "sync": triggered}
+
+----- FILE: parser/app/api/deps.py -----
+"""Зависимости FastAPI."""
+from __future__ import annotations
+
+from ..runtime import SessionLocal
+
+
+def get_db():
+    with SessionLocal() as s:
+        yield s
+
+----- FILE: parser/app/api/health.py -----
+from __future__ import annotations
+
+from fastapi import APIRouter
+
+from ..runtime import client, scheduler, service
+
+router = APIRouter()
+
+AUTH_LABEL = {True: "ok", False: "failed", None: "unknown"}
+
+
+@router.get("/health", tags=["service"])
+def health():
+    return {
+        "status": "ok",
+        "sync_running": service.is_running(),
+        "scheduler": scheduler.running,
+        "aiesec_auth": AUTH_LABEL[client.auth_ok],
+    }
+
+----- FILE: parser/app/api/opportunities.py -----
+from __future__ import annotations
+
+from datetime import date, datetime
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import Session
+
+from ..client import AiesecError, AuthError, NotSupported
+
+from ..models import Opportunity
+from ..runtime import service, targets
+from .deps import get_db
+
+router = APIRouter()
+
+LIST_EXCLUDE = {"raw"}
+
+
+def to_dict(row: Opportunity, full: bool = False) -> dict:
+    return {
+        c.name: getattr(row, c.name)
+        for c in Opportunity.__table__.columns
+        if full or c.name not in LIST_EXCLUDE
+    }
+
+
+def _actual_clause():
+    return (Opportunity.is_open.is_(True)) & (
+        Opportunity.applications_close_date.is_(None)
+        | (Opportunity.applications_close_date >= date.today())
+    )
+
+
+@router.get("/opportunities", tags=["opportunities"])
+def list_opportunities(
+    country: str | None = Query(None, description="Название страны из targets.json"),
+    city: str | None = Query(None, description="Город Турции из targets.json"),
+    home_mc_id: int | None = None,
+    home_lc_id: int | None = None,
+    programme_id: int | None = None,
+    q: str | None = Query(None, description="Поиск по названию"),
+    only_open: bool = True,
+    closing_before: date | None = None,
+    new_since: datetime | None = Query(None, description="Впервые увидели после (UTC)"),
+    updated_since: datetime | None = Query(
+        None,
+        description="Изменились/закрылись после (UTC). Используйте с only_open=false",
+    ),
+    sort: Literal["first_seen_at", "applications_close_date", "date_opened", "updated_at",
+                  "remote_updated_at"] = "first_seen_at",
+    desc: bool = True,
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+):
+    conds = []
+    if only_open:
+        conds.append(_actual_clause())
+    if country:
+        mc = next((v for k, v in targets.countries.items() if k.lower() == country.lower()), None)
+        if mc is None:
+            raise HTTPException(404, f"Страна '{country}' не в targets.json")
+        conds.append(Opportunity.home_mc_id == mc)
+    if city:
+        lc = next((v for k, v in targets.turkey_cities.items() if k.lower() == city.lower()), None)
+        if lc is None:
+            raise HTTPException(404, f"Город '{city}' не в targets.json")
+        conds.append(or_(Opportunity.home_lc_id == lc, Opportunity.host_lc_id == lc))
+    if home_mc_id is not None:
+        conds.append(Opportunity.home_mc_id == home_mc_id)
+    if home_lc_id is not None:
+        conds.append(Opportunity.home_lc_id == home_lc_id)
+    if programme_id is not None:
+        conds.append(Opportunity.programme_id == programme_id)
+    if q:
+        conds.append(Opportunity.title.ilike(f"%{q}%"))
+    if closing_before:
+        conds.append(Opportunity.applications_close_date <= closing_before)
+    if new_since:
+        conds.append(Opportunity.first_seen_at >= new_since)
+    if updated_since:
+        conds.append(Opportunity.updated_at >= updated_since)
+
+    col = getattr(Opportunity, sort)
+    total = db.scalar(select(func.count()).select_from(Opportunity).where(*conds))
+    rows = db.scalars(
+        select(Opportunity).where(*conds)
+        .order_by(col.desc() if desc else col.asc()).limit(limit).offset(offset)
+    ).all()
+    return {"total": total, "limit": limit, "offset": offset, "items": [to_dict(r) for r in rows]}
+
+
+@router.get("/opportunities/stats", tags=["opportunities"])
+def opportunities_stats(db: Session = Depends(get_db)):
+    clause = _actual_clause()
+    by_mc = dict(db.execute(
+        select(Opportunity.home_mc_id, func.count()).where(clause)
+        .group_by(Opportunity.home_mc_id)
+    ).all())
+    by_lc = dict(db.execute(
+        select(Opportunity.home_lc_id, func.count()).where(clause)
+        .group_by(Opportunity.home_lc_id)
+    ).all())
+    return {
+        "open_total": db.scalar(select(func.count()).select_from(Opportunity).where(clause)),
+        "countries": {n: by_mc.get(i, 0) for n, i in targets.countries.items()},
+        "turkey_cities": {n: by_lc.get(i, 0) for n, i in targets.turkey_cities.items()},
+        "last_full_at": service.get_state("last_full_at"),
+        "last_incremental_at": service.get_state("last_incremental_at"),
+        "last_reconcile_at": service.get_state("last_reconcile_at"),
+    }
+
+
+@router.get("/opportunities/{opportunity_id}", tags=["opportunities"])
+def get_opportunity(opportunity_id: int, db: Session = Depends(get_db)):
+    row = db.get(Opportunity, opportunity_id)
+    if not row:
+        raise HTTPException(404, "Стажировка не найдена в базе")
+    return to_dict(row, full=True)
+
+
+@router.post("/opportunities/{opportunity_id}/refresh", tags=["opportunities"])
+def refresh_opportunity(opportunity_id: int, db: Session = Depends(get_db)):
+    try:
+        result = service.refresh_one(opportunity_id)
+    except NotSupported as e:
+        raise HTTPException(501, str(e))
+    except AuthError as e:
+        raise HTTPException(502, f"AIESEC отклонил токен: {e}")
+    except AiesecError as e:
+        raise HTTPException(502, f"Ошибка AIESEC API: {e}")
+    db.expire_all()
+    row = db.get(Opportunity, opportunity_id)
+    return {**result, "opportunity": to_dict(row) if row else None}
+
+----- FILE: parser/app/api/schemas.py -----
+from __future__ import annotations
+
+from pydantic import BaseModel, Field, model_validator
+
+
+class TokenIn(BaseModel):
+    token: str | None = Field(
+        None, min_length=10, max_length=2000,
+        description="Готовый access_token (живёт ~2 ч; без refresh-настроек сам не обновится)",
+    )
+    refresh_token: str | None = Field(
+        None, min_length=10, max_length=2000,
+        description="refresh_token: меняется на access_token, дальше сервис обновляет токен сам",
+    )
+    verify: bool = Field(True, description="Для token: проверить запросом к AIESEC до применения")
+    run_sync: bool = Field(
+        True,
+        description="Если синк падал из-за токена (или первого синка ещё не было) — запустить сразу",
+    )
+
+    @model_validator(mode="after")
+    def _exactly_one(self):
+        if bool(self.token) == bool(self.refresh_token):
+            raise ValueError("Передайте ровно одно из полей: token или refresh_token")
+        return self
+
+----- FILE: parser/app/api/sync.py -----
+from __future__ import annotations
+
+from typing import Literal
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from ..models import SyncRun
+from ..runtime import service
+from .deps import get_db
+
+router = APIRouter()
+
+
+@router.post("/sync/{kind}", status_code=202, tags=["sync"])
+def trigger_sync(kind: Literal["full", "incremental", "reconcile"], bg: BackgroundTasks):
+    run_id = service.try_start(kind)
+    if run_id is None:
+        raise HTTPException(409, "Синхронизация уже выполняется")
+    bg.add_task(service.execute, run_id, kind)
+    return {"run_id": run_id, "kind": kind, "status": "running"}
+
+
+@router.post("/maintenance/expire", tags=["sync"])
+def trigger_expire():
+    return {"closed": service.expire_by_deadline()}
+
+
+@router.get("/sync/runs", tags=["sync"])
+def list_runs(limit: int = Query(20, ge=1, le=200), db: Session = Depends(get_db)):
+    rows = db.scalars(select(SyncRun).order_by(SyncRun.run_id.desc()).limit(limit)).all()
+    return [{c.name: getattr(r, c.name) for c in SyncRun.__table__.columns} for r in rows]
+
+----- FILE: parser/app/auth.py -----
+"""Обмен refresh_token -> access_token (OAuth2, auth.aiesec.org)."""
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+
+import requests
+
+from .errors import AiesecError, AuthError
+
+log = logging.getLogger("aiesec.auth")
+
+
+@dataclass
+class TokenSet:
+    access_token: str
+    refresh_token: str | None
+    expires_at: datetime | None
+    scope: str | None = None
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+class OAuthRefresher:
+    def __init__(self, url: str, client_id: str, client_secret: str, origin: str | None = None,
+                 timeout: int = 30, session: requests.Session | None = None):
+        self.url = url
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.origin = origin
+        self.timeout = timeout
+        self._http = session or requests.Session()
+
+    def refresh(self, refresh_token: str) -> TokenSet:
+        headers = {"Accept": "application/json"}
+        if self.origin:
+            headers["Origin"] = self.origin
+        try:
+            r = self._http.post(
+                self.url,
+                auth=(self.client_id, self.client_secret),
+                data={"grant_type": "refresh_token", "refresh_token": refresh_token},
+                headers=headers,
+                timeout=self.timeout,
+            )
+        except requests.RequestException as e:
+            raise AiesecError(f"сервер авторизации AIESEC недоступен: {e}") from e
+
+        if r.status_code in (400, 401, 403):
+            raise AuthError(f"refresh_token отклонён ({r.status_code}): {r.text[:300]}. "
+                            f"Нужен новый refresh_token: PUT /admin/token")
+        if r.status_code != 200:
+            raise AiesecError(f"сервер авторизации ответил HTTP {r.status_code}: {r.text[:200]}")
+        try:
+            j = r.json()
+            access = j["access_token"]
+        except (ValueError, KeyError) as e:
+            raise AiesecError(f"неожиданный ответ сервера авторизации: {r.text[:200]}") from e
+
+        return TokenSet(access_token=access, refresh_token=j.get("refresh_token"),
+                        expires_at=self._expires_at(j), scope=j.get("scope"))
+
+    @staticmethod
+    def _expires_at(j: dict) -> datetime | None:
+        try:
+            ttl = int(j["expires_in"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        now = utcnow()
+        local = now + timedelta(seconds=ttl)
+        try:
+            by_server = datetime.fromtimestamp(int(j["created_at"]) + ttl, timezone.utc).replace(tzinfo=None)
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return local
+        return by_server if abs((by_server - local).total_seconds()) < 300 else local
+
+----- FILE: parser/app/client.py -----
+"""Клиент AIESEC GraphQL: троттлинг, ретраи, интроспекция схемы, авто-выбор полей."""
+from __future__ import annotations
+
+import json
+import logging
+import threading
+import time
+import unicodedata
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Callable, Iterator
+
+import requests
+
+from .auth import OAuthRefresher, utcnow
+from .errors import AiesecError, AuthError, GQLError, NotSupported  # noqa: F401 (реэкспорт)
+
+log = logging.getLogger("aiesec.client")
+
+SEARCH_FIELDS = ["searchOpportunities", "opportunities"]
+
+# вложенные объекты -> какие поля из них берём (если есть в схеме)
+NESTED_PREFERRED = {
+    "home_lc": {"id", "name", "full_name", "tag"},
+    "home_mc": {"id", "name", "full_name", "tag", "country_code"},
+    "host_lc": {"id", "name", "full_name", "tag"},
+    "city": {"id", "name"},
+    "organisation": {"id", "name"},
+    "programme": {"id", "short_name", "short_name_display", "name"},
+    "branch": {"id", "name"},
+    "currency": {"id", "name", "alphabetic_code"},
+}
+JSON_KEEP = {"project_fee", "work_hours", "fee_and_health_insurance", "opportunity_cost"}
+LIST_OBJECT_FIELDS = {"skills", "backgrounds", "languages", "study_levels", "nationalities", "skills_developments"}
+# лёгкий набор для сверки статусов
+SLIM_FIELDS = ["id", "status", "current_status", "available_openings", "applicants_count",
+               "accepted_count", "applications_close_date"]
+
+TYPE_FRAG = "fragment T on __Type{kind name ofType{kind name ofType{kind name ofType{kind name}}}}"
+
+
+def type_str(t: dict) -> str:
+    if t["kind"] == "NON_NULL":
+        return type_str(t["ofType"]) + "!"
+    if t["kind"] == "LIST":
+        return "[" + type_str(t["ofType"]) + "]"
+    return t["name"]
+
+
+def unwrap(t: dict) -> dict:
+    while t.get("ofType"):
+        t = t["ofType"]
+    return t
+
+
+def norm(s: Any) -> str:
+    s = unicodedata.normalize("NFKD", str(s or "")).encode("ascii", "ignore").decode().lower()
+    return " ".join(s.split())
+
+
+@dataclass
+class SearchSchema:
+    field: str  # searchOpportunities | opportunities
+    args: dict[str, str]
+    item_type: str
+    filters: dict[str, dict]  # имя фильтра -> inputField
+
+
+class AiesecClient:
+    def __init__(self, token: str, url: str, per_page: int = 200, max_pages: int = 200,
+                 delay: float = 0.7, timeout: int = 60, max_retries: int = 4,
+                 exclude_fields: list[str] | None = None,
+                 refresher: OAuthRefresher | None = None, refresh_token: str | None = None,
+                 refresh_margin: int = 600):
+        self.token = (token or "").strip()
+        self.url = url
+        self.per_page = per_page
+        self.max_pages = max_pages
+        self.delay = delay
+        self.timeout = timeout
+        self.max_retries = max_retries
+        self.broken_fields: set[str] = set(exclude_fields or [])
+
+        # состояние авторизации: None — ещё не проверяли, True/False — по результату последнего запроса
+        self.token_source = "env"
+        self.auth_ok: bool | None = None
+        self.auth_error: str | None = None
+        self.auth_checked_at: datetime | None = None
+
+        # автообновление: refresh_token -> access_token
+        self.refresher = refresher
+        self.refresh_token: str | None = (refresh_token or "").strip() or None
+        self.expires_at: datetime | None = None  # naive UTC; None — срок жизни неизвестен
+        self.refresh_margin = refresh_margin
+        self.on_tokens: Callable[["AiesecClient"], None] | None = None  # сохранить токены (вызывается до их использования)
+        self._refresh_lock = threading.RLock()
+
+        self._http = requests.Session()
+        self._throttle_lock = threading.Lock()
+        self._last_call = 0.0
+        self._types: dict[str, dict] = {}
+        self._qf: dict[str, dict] | None = None
+        self._schema: SearchSchema | None = None
+        self._select_cache: dict[tuple, str] = {}
+
+    # ---------- транспорт ----------
+    def _throttle(self) -> None:
+        with self._throttle_lock:
+            wait = self._last_call + self.delay - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+            self._last_call = time.monotonic()
+
+    def gql(self, query: str, variables: dict | None = None) -> dict:
+        last_err: Exception | None = None
+        refreshed_after_401 = False
+        self.ensure_fresh()  # проактивно: до истечения access_token
+        for attempt in range(self.max_retries + 1):
+            self._throttle()
+            used_token = self.token
+            try:
+                r = self._http.post(
+                    self.url,
+                    params={"access_token": used_token},
+                    headers={"Authorization": used_token, "Content-Type": "application/json"},
+                    json={"query": query, "variables": variables or {}},
+                    timeout=self.timeout,
+                )
+            except requests.RequestException as e:
+                last_err = e
+                self._backoff(attempt)
+                continue
+            if r.status_code == 401 and not refreshed_after_401 and self.can_refresh:
+                # реактивно: токен умер раньше срока (отозван, рассинхрон часов) — один раз освежаем и повторяем
+                refreshed_after_401 = True
+                log.warning("401 от AIESEC — пробую обновить токен через refresh_token")
+                self.refresh_after_401(used_token)  # AuthError, если и refresh_token мёртв
+                continue
+            if r.status_code in (401, 403):
+                msg = f"{r.status_code}: токен не принят. {r.text[:300]}"
+                self._mark_auth(False, msg)
+                raise AuthError(msg)
+            if r.status_code == 429 or r.status_code >= 500:
+                last_err = AiesecError(f"HTTP {r.status_code}")
+                retry_after = None
+                try:
+                    retry_after = float(r.headers.get("Retry-After", ""))
+                except ValueError:
+                    pass
+                log.warning("AIESEC вернул %s, попытка %s/%s", r.status_code, attempt + 1, self.max_retries + 1)
+                self._backoff(attempt, retry_after)
+                continue
+            r.raise_for_status()
+            self._mark_auth(True)
+            data = r.json()
+            if data.get("errors"):
+                raise GQLError(data["errors"])
+            return data["data"]
+        raise AiesecError(f"запрос не удался после ретраев: {last_err}")
+
+    def _backoff(self, attempt: int, retry_after: float | None = None) -> None:
+        time.sleep(retry_after if retry_after else min(2 ** attempt * 2, 60))
+
+    # ---------- токен ----------
+    def _mark_auth(self, ok: bool, error: str | None = None) -> None:
+        self.auth_ok = ok
+        self.auth_error = None if ok else error
+        self.auth_checked_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    @property
+    def can_refresh(self) -> bool:
+        return bool(self.refresher and self.refresh_token)
+
+    def seconds_left(self) -> float | None:
+        if not self.expires_at:
+            return None
+        return (self.expires_at - utcnow()).total_seconds()
+
+    def set_token(self, token: str, source: str = "api", verified: bool | None = None,
+                  refresh_token: str | None = None, expires_at: datetime | None = None) -> None:
+        """Подмена токена на лету. Кэши схемы не трогаем: схема от токена не зависит.
+        refresh_token=None — оставить прежний; expires_at=None — срок неизвестен."""
+        self.token = token.strip()
+        if refresh_token is not None:
+            self.refresh_token = refresh_token.strip() or None
+        self.expires_at = expires_at
+        self.token_source = source
+        self.auth_ok = verified
+        self.auth_error = None
+        self.auth_checked_at = None
+
+    def _needs_refresh(self, refresh_if_unknown: bool) -> bool:
+        left = self.seconds_left()
+        if not self.token:
+            return True
+        if left is None:
+            return refresh_if_unknown
+        return left < self.refresh_margin
+
+    def ensure_fresh(self, refresh_if_unknown: bool = False) -> None:
+        """Освежить токен, если он скоро истечёт. Временные сбои глотаем (токен мог ещё быть живым),
+        AuthError (мёртвый refresh_token) пробрасываем."""
+        if not self.can_refresh:
+            return
+        with self._refresh_lock:
+            if self._needs_refresh(refresh_if_unknown):
+                self._do_refresh(proactive=True)
+
+    def refresh_after_401(self, stale_token: str) -> None:
+        """Освежить токен после 401. Если другой поток уже успел — второй раз refresh_token НЕ тратим
+        (он одноразовый, повторное использование сломало бы цепочку)."""
+        with self._refresh_lock:
+            if self.token != stale_token:
+                return
+            self._do_refresh(proactive=False)
+
+    def refresh_with(self, refresh_token: str):
+        """Обмен произвольного refresh_token (ручной ввод через API). Применяет и сохраняет результат."""
+        if not self.refresher:
+            raise AuthError("не настроены AIESEC_CLIENT_ID / AIESEC_CLIENT_SECRET")
+        with self._refresh_lock:
+            ts = self.refresher.refresh(refresh_token)
+            self._apply(ts, fallback_refresh=refresh_token)
+            return ts
+
+    def _do_refresh(self, proactive: bool) -> None:
+        try:
+            ts = self.refresher.refresh(self.refresh_token)
+        except AuthError as e:
+            self._mark_auth(False, str(e))
+            raise
+        except AiesecError as e:
+            if proactive:
+                log.warning("не удалось обновить токен заранее (%s), продолжаю со старым", e)
+                return
+            raise
+        self._apply(ts, fallback_refresh=self.refresh_token)
+
+    def _apply(self, ts, fallback_refresh: str | None) -> None:
+        self.token = ts.access_token
+        self.refresh_token = ts.refresh_token or fallback_refresh
+        self.expires_at = ts.expires_at
+        self.token_source = "refresh"
+        self._mark_auth(True)
+        log.info("токен AIESEC обновлён, действует ещё ~%s с", int(self.seconds_left() or 0))
+        if self.on_tokens:
+            try:  # потеря новой пары = потеря цепочки refresh_token после рестарта, поэтому шумим громко
+                self.on_tokens(self)
+            except Exception:  # noqa: BLE001
+                log.exception("КРИТИЧНО: не удалось сохранить новые токены, после рестарта потребуется новый refresh_token")
+
+    def check_token(self, token: str | None = None) -> tuple[bool, str | None]:
+        """Один дешёвый запрос. (True, None) / (False, ответ AIESEC). AiesecError — если AIESEC недоступен.
+        Токен-кандидат не применяется; если проверяем текущий — обновляем состояние авторизации."""
+        candidate = (token or self.token).strip()
+        self._throttle()
+        try:
+            r = self._http.post(self.url, params={"access_token": candidate},
+                                headers={"Authorization": candidate, "Content-Type": "application/json"},
+                                json={"query": "{ __typename }"}, timeout=self.timeout)
+        except requests.RequestException as e:
+            raise AiesecError(f"AIESEC недоступен: {e}") from e
+        if r.status_code == 429 or r.status_code >= 500:
+            raise AiesecError(f"AIESEC ответил HTTP {r.status_code}, проверить токен не удалось")
+        ok = r.status_code not in (401, 403)
+        if candidate == self.token:
+            self._mark_auth(ok, None if ok else f"{r.status_code}: {r.text[:300]}")
+        return ok, (None if ok else r.text[:300])
+
+    # ---------- интроспекция ----------
+    def get_type(self, name: str) -> dict:
+        if name not in self._types:
+            q = ("query($n:String!){__type(name:$n){name kind "
+                 "fields{name args{name type{...T}} type{...T}} "
+                 "inputFields{name type{...T}} enumValues{name}}} " + TYPE_FRAG)
+            self._types[name] = self.gql(q, {"n": name})["__type"]
+        return self._types[name]
+
+    def query_fields(self) -> dict[str, dict]:
+        if self._qf is None:
+            q = "{__schema{queryType{fields{name args{name type{...T}} type{...T}}}}} " + TYPE_FRAG
+            self._qf = {f["name"]: f for f in self.gql(q)["__schema"]["queryType"]["fields"]}
+        return self._qf
+
+    @staticmethod
+    def arg_types(field: dict) -> dict[str, str]:
+        return {a["name"]: type_str(a["type"]) for a in field["args"]}
+
+    def schema(self) -> SearchSchema:
+        if self._schema:
+            return self._schema
+        qf = self.query_fields()
+        fname = next((n for n in SEARCH_FIELDS if n in qf), None)
+        if not fname:
+            raise AiesecError("В схеме нет searchOpportunities/opportunities")
+        field = qf[fname]
+        args = self.arg_types(field)
+        list_t = self.get_type(unwrap(field["type"])["name"])
+        data = next((f for f in list_t["fields"] if f["name"] == "data"), None)
+        if not data:
+            raise AiesecError("В типе списка нет поля data")
+        filters_t = self.get_type(args["filters"].rstrip("!"))
+        self._schema = SearchSchema(
+            field=fname, args=args, item_type=unwrap(data["type"])["name"],
+            filters={f["name"]: f for f in filters_t["inputFields"]},
+        )
+        return self._schema
+
+    def supports_range_filter(self, name: str) -> bool:
+        """Есть ли фильтр `name` вида {from, to}."""
+        f = self.schema().filters.get(name)
+        if not f:
+            return False
+        base = unwrap(f["type"])
+        if base["kind"] != "INPUT_OBJECT":
+            return False
+        return "from" in {x["name"] for x in self.get_type(base["name"])["inputFields"] or []}
+
+    def _scalar_names(self, type_name: str) -> set[str]:
+        return {f["name"] for f in self.get_type(type_name)["fields"]
+                if unwrap(f["type"])["kind"] in ("SCALAR", "ENUM")}
+
+    def _auto_select(self, type_name: str) -> str:
+        parts = []
+        for f in self.get_type(type_name)["fields"]:
+            name = f["name"]
+            if name in self.broken_fields:
+                continue
+            base = unwrap(f["type"])
+            if base["kind"] == "ENUM":
+                parts.append(name)
+            elif base["kind"] == "SCALAR":
+                if base["name"] == "JSON" and name not in JSON_KEEP:
+                    continue
+                parts.append(name)
+            elif base["kind"] == "OBJECT" and name in NESTED_PREFERRED:
+                sub = [sf["name"] for sf in self.get_type(base["name"])["fields"]
+                       if sf["name"] in NESTED_PREFERRED[name] and sf["name"] not in self.broken_fields
+                       and unwrap(sf["type"])["kind"] in ("SCALAR", "ENUM")]
+                parts.append(f"{name}{{{' '.join(sub or ['id'])}}}")
+            elif base["kind"] == "OBJECT" and name in LIST_OBJECT_FIELDS:
+                sub = [sf["name"] for sf in self.get_type(base["name"])["fields"]
+                       if unwrap(sf["type"])["kind"] in ("SCALAR", "ENUM")
+                       and unwrap(sf["type"])["name"] != "JSON" and sf["name"] not in self.broken_fields]
+                if sub:
+                    parts.append(f"{name}{{{' '.join(sub)}}}")
+        return " ".join(parts)
+
+    def select(self, mode: str, type_name: str | None = None) -> str:
+        type_name = type_name or self.schema().item_type
+        key = (type_name, mode, frozenset(self.broken_fields))
+        if key not in self._select_cache:
+            if mode == "slim":
+                have = self._scalar_names(type_name)
+                self._select_cache[key] = " ".join(n for n in SLIM_FIELDS
+                                                   if n in have and n not in self.broken_fields)
+            else:
+                self._select_cache[key] = self._auto_select(type_name)
+        return self._select_cache[key]
+
+    # ---------- запросы с авто-исключением «сломанных» полей ----------
+    def _run(self, make_query: Callable[[], str], variables: dict, skip: set[str],
+             extract: Callable[[dict], Any]) -> Any:
+        for _ in range(20):
+            try:
+                return extract(self.gql(make_query(), variables))
+            except GQLError as e:
+                new = {err["path"][-1] for err in e.errors
+                       if err.get("path") and isinstance(err["path"][-1], str)} - self.broken_fields - skip
+                if not new:
+                    raise
+                self.broken_fields |= new
+                self._select_cache.clear()
+                log.warning("сервер не умеет поля %s — исключаю и повторяю", sorted(new))
+        raise AiesecError("слишком много сломанных полей")
+
+    def search_page(self, filters: dict, page: int, mode: str = "full") -> list[dict]:
+        s = self.schema()
+
+        def make_query() -> str:
+            a = s.args
+            return (f"query($page:{a.get('page', 'Int')},$per_page:{a.get('per_page', 'Int')},"
+                    f"$filters:{a['filters']}){{ {s.field}(page:$page, per_page:$per_page, filters:$filters)"
+                    f"{{ data {{ {self.select(mode)} }} }} }}")
+
+        return self._run(make_query, {"page": page, "per_page": self.per_page, "filters": filters},
+                         {s.field, "data"}, lambda d: d[s.field]["data"] or [])
+
+    def iter_pages(self, filters: dict, mode: str = "full") -> Iterator[list[dict]]:
+        """Отдаёт страницы. Если упёрлись в max_pages — ошибка (выдача неполная, закрывать по ней нельзя)."""
+        for page in range(1, self.max_pages + 1):
+            rows = self.search_page(filters, page, mode)
+            log.info("стр. %s: %s (%s)", page, len(rows), mode)
+            if rows:
+                yield rows
+            if len(rows) < self.per_page:
+                return
+        raise AiesecError(f"достигнут max_pages={self.max_pages}, выдача неполная")
+
+    def get_opportunity(self, opportunity_id: int) -> dict | None:
+        f = self.query_fields().get("opportunity")
+        if not f:
+            raise NotSupported("в схеме нет запроса opportunity(id)")
+        id_type = self.arg_types(f).get("id", "ID!")
+        type_name = unwrap(f["type"])["name"]
+
+        def make_query() -> str:
+            return f"query($id:{id_type}){{ opportunity(id:$id){{ {self.select('full', type_name)} }} }}"
+
+        try:
+            return self._run(make_query, {"id": opportunity_id}, {"opportunity"}, lambda d: d["opportunity"])
+        except GQLError as e:
+            if "not found" in str(e).lower():
+                return None
+            raise
+
+    # ---------- офисы ----------
+    def search_offices(self, q: str, limit: int = 50) -> list[dict]:
+        query = ("query($q:String,$pp:Int){ committees(q:$q, per_page:$pp)"
+                 "{ data { id name full_name tag country_code parent{ id name } } } }")
+        return self.gql(query, {"q": q, "pp": limit})["committees"]["data"] or []
+
+----- FILE: parser/app/config.py -----
+from __future__ import annotations
+
+import json
+import os
+from dataclasses import dataclass, field
+
+from pydantic import field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    # --- доступ к AIESEC ---
+    # Достаточно ЛЮБОГО из двух вариантов:
+    #   а) AIESEC_TOKEN — готовый access_token;
+    #   б) AIESEC_REFRESH_TOKEN + AIESEC_CLIENT_ID + AIESEC_CLIENT_SECRET — автообновление.
+    # allow_no_token=true разрешает старт вообще без токена (ждём PUT /admin/token).
+    aiesec_token: str | None = None
+    aiesec_refresh_token: str | None = None
+    aiesec_client_id: str | None = None
+    aiesec_client_secret: str | None = None
+    aiesec_auth_url: str = "https://auth.aiesec.org/oauth/token"
+    aiesec_auth_origin: str | None = "https://aiesec.org"
+    token_refresh_margin_sec: int = 600
+    graphql_url: str = "https://gis-api.aiesec.org/graphql"
+
+    allow_no_token: bool = False
+
+    # --- БД ---
+    database_url: str = "sqlite:///./data/parser.db"
+    # Схема для таблиц приложения. В тестах (sqlite) выставляется "" — см. conftest.
+    db_schema: str = "parser"
+
+    targets_file: str = "targets.json"
+
+    # --- нагрузка на AIESEC API ---
+    per_page: int = 200
+    max_pages: int = 200
+    request_delay_sec: float = 0.7
+
+    # --- планировщик ---
+    scheduler_enabled: bool = True
+    incremental_interval_minutes: int = 360
+    reconcile_interval_hours: int = 24
+
+    # --- инкремент ---
+    incremental_date_filter: str = "created"
+    incremental_overlap_days: int = 1
+
+    # --- предохранители ---
+    gap_fill_max: int = 200
+    max_close_ratio: float = 0.5
+
+    @field_validator(
+        "aiesec_token", "aiesec_refresh_token", "aiesec_client_id", "aiesec_client_secret",
+        "aiesec_auth_origin", mode="before",
+    )
+    @classmethod
+    def _empty_to_none(cls, v):
+        return (v.strip() or None) if isinstance(v, str) else v
+
+    @model_validator(mode="after")
+    def _check_credentials(self):
+        has_any = bool(self.aiesec_token or self.aiesec_refresh_token)
+        if not has_any and not self.allow_no_token:
+            raise ValueError(
+                "Задайте AIESEC_TOKEN или AIESEC_REFRESH_TOKEN (+ AIESEC_CLIENT_ID/SECRET), "
+                "или включите ALLOW_NO_TOKEN=true, чтобы поднять сервис без токена"
+            )
+        if self.aiesec_refresh_token and not (self.aiesec_client_id and self.aiesec_client_secret):
+            raise ValueError("Для AIESEC_REFRESH_TOKEN нужны AIESEC_CLIENT_ID и AIESEC_CLIENT_SECRET")
+        return self
+
+    @property
+    def auto_refresh(self) -> bool:
+        return bool(self.aiesec_client_id and self.aiesec_client_secret)
+
+
+@dataclass
+class Targets:
+    countries: dict[str, int] = field(default_factory=dict)
+    turkey_mc_id: int | None = None
+    turkey_cities: dict[str, int] = field(default_factory=dict)
+    base_filters: dict = field(default_factory=dict)
+    only_with_openings: bool = True
+    exclude_fields: list[str] = field(default_factory=list)
+
+    @classmethod
+    def load(cls, path: str) -> "Targets":
+        with open(path, encoding="utf-8") as fh:
+            j = json.load(fh)
+        tr = j.get("turkey") or {}
+        return cls(
+            countries=j.get("countries", {}),
+            turkey_mc_id=tr.get("mc_id"),
+            turkey_cities=tr.get("cities", {}),
+            base_filters=j.get("base_filters", {"programmes": [8, 9], "status": "open"}),
+            only_with_openings=j.get("only_with_openings", True),
+            exclude_fields=j.get("exclude_fields", []),
+        )
+
+    @property
+    def mc_ids(self) -> set[int]:
+        return set(self.countries.values())
+
+    @property
+    def lc_ids(self) -> set[int]:
+        return set(self.turkey_cities.values())
+
+    def geo_queries(self) -> list[tuple[str, dict]]:
+        out = []
+        if self.countries:
+            out.append(("countries", {"home_mcs": list(self.countries.values())}))
+        if self.turkey_cities:
+            out.append(("turkey_lcs", {"committee_scope": list(self.turkey_cities.values())}))
+        return out
+
+----- FILE: parser/app/errors.py -----
+from __future__ import annotations
+
+import json
+
+
+class AiesecError(RuntimeError):
+    pass
+
+
+class AuthError(AiesecError):
+    pass
+
+
+class NotSupported(AiesecError):
+    pass
+
+
+class GQLError(AiesecError):
+    def __init__(self, errors):
+        super().__init__(json.dumps(errors, ensure_ascii=False)[:1500])
+        self.errors = errors
+
+----- FILE: parser/app/main.py -----
+"""Точка входа. Реэкспортирует всё, что тесты/интеграции могут захотеть импортировать."""
+from __future__ import annotations
+
+import logging
+
+# Настройка логирования — один раз, до первого использования логгеров.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+from .runtime import (  # noqa: E402,F401
+    SessionLocal,
+    client,
+    create_app,
+    init_token,
+    persist_tokens,
+    scheduler,
+    service,
+    settings,
+    targets,
+    token_keepalive,
+)
+from .tokens import clean_token as _clean, mask_token  # noqa: E402,F401
+
+app = create_app()
+
+__all__ = [
+    "app", "settings", "targets", "client", "service", "SessionLocal",
+    "scheduler", "init_token", "persist_tokens", "token_keepalive",
+    "_clean", "mask_token",
+]
+
+----- FILE: parser/app/models.py -----
+from __future__ import annotations
+
+import os
+from datetime import date, datetime, timezone
+
+from sqlalchemy import (
+    JSON, Boolean, Date, DateTime, Float, Integer, String, Text, create_engine,
+)
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
+
+JSONType = JSON().with_variant(JSONB, "postgresql")
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+def _schema() -> str | None:
+    s = os.environ.get("DB_SCHEMA", "parser")
+    return s or None
+
+
+class Opportunity(Base):
+    __tablename__ = "opportunities"
+    __table_args__ = {"schema": _schema()} if _schema() else {}
+
+    opportunity_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+
+    title: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str | None] = mapped_column(String(50))
+    current_status: Mapped[str | None] = mapped_column(String(50))
+    programme_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    programme_name: Mapped[str | None] = mapped_column(String(100))
+
+    home_mc_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    home_mc_name: Mapped[str | None] = mapped_column(String(200))
+    home_lc_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    home_lc_name: Mapped[str | None] = mapped_column(String(200))
+    host_lc_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    host_lc_name: Mapped[str | None] = mapped_column(String(200))
+    location: Mapped[str | None] = mapped_column(String(300))
+    organisation_id: Mapped[int | None] = mapped_column(Integer)
+    organisation_name: Mapped[str | None] = mapped_column(String(300))
+
+    openings: Mapped[int | None] = mapped_column(Integer)
+    available_openings: Mapped[int | None] = mapped_column(Integer)
+    applicants_count: Mapped[int | None] = mapped_column(Integer)
+    accepted_count: Mapped[int | None] = mapped_column(Integer)
+
+    date_opened: Mapped[date | None] = mapped_column(Date)
+    applications_close_date: Mapped[date | None] = mapped_column(Date, index=True)
+    earliest_start_date: Mapped[date | None] = mapped_column(Date)
+    latest_end_date: Mapped[date | None] = mapped_column(Date)
+    duration: Mapped[int | None] = mapped_column(Integer)
+    experience_type: Mapped[str | None] = mapped_column(String(100))
+    cost_total: Mapped[float | None] = mapped_column(Float)
+    cost_currency: Mapped[str | None] = mapped_column(String(10))
+
+    # ИЗМЕНЕНО: строка -> DateTime, индексируется — база инкрементального синка
+    remote_updated_at: Mapped[datetime | None] = mapped_column(DateTime, index=True)
+
+    skills: Mapped[list | None] = mapped_column(JSONType)
+    backgrounds: Mapped[list | None] = mapped_column(JSONType)
+    languages: Mapped[list | None] = mapped_column(JSONType)
+    study_levels: Mapped[list | None] = mapped_column(JSONType)
+    nationalities: Mapped[list | None] = mapped_column(JSONType)
+    skills_developments: Mapped[list | None] = mapped_column(JSONType)
+    raw: Mapped[dict | None] = mapped_column(JSONType)
+
+    # --- служебная часть ---
+    is_open: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    close_reason: Mapped[str | None] = mapped_column(String(50))
+    source_query: Mapped[str | None] = mapped_column(String(50))
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class SyncRun(Base):
+    __tablename__ = "sync_runs"
+    __table_args__ = {"schema": _schema()} if _schema() else {}
+
+    run_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(20), default="running")
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+    stats: Mapped[dict | None] = mapped_column(JSONType)
+    error: Mapped[str | None] = mapped_column(Text)
+
+
+class SyncState(Base):
+    __tablename__ = "sync_state"
+    __table_args__ = {"schema": _schema()} if _schema() else {}
+
+    key: Mapped[str] = mapped_column(String(50), primary_key=True)
+    value: Mapped[str | None] = mapped_column(Text)
+
+
+def make_session_factory(url: str) -> sessionmaker:
+    kwargs = {}
+    if url.startswith("sqlite"):
+        kwargs["connect_args"] = {"check_same_thread": False}
+        path = url.split("///", 1)[-1]
+        if path and os.path.dirname(path):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+    engine = create_engine(url, pool_pre_ping=True, **kwargs)
+    return sessionmaker(engine, expire_on_commit=False)
+
+----- FILE: parser/app/normalize.py -----
+"""Приведение ответа AIESEC к колонкам БД."""
+from __future__ import annotations
+
+from datetime import date, datetime
+from typing import Any
+
+_MISSING = object()
+
+SCALARS = {
+    "title": "title",
+    "status": "status",
+    "current_status": "current_status",
+    "location": "location",
+    "openings": "openings",
+    "available_openings": "available_openings",
+    "applicants_count": "applicants_count",
+    "accepted_count": "accepted_count",
+    "duration": "duration",
+    "experience_type": "experience_type",
+    "remote_updated_at": "updated_at",
+    "date_opened": "date_opened",
+    "applications_close_date": "applications_close_date",
+    "earliest_start_date": "earliest_start_date",
+    "latest_end_date": "latest_end_date",
+    "skills": "skills",
+    "backgrounds": "backgrounds",
+    "languages": "languages",
+    "study_levels": "study_levels",
+    "nationalities": "nationalities",
+    "skills_developments": "skills_developments",
+}
+
+NESTED = {
+    "programme_id": [("programme", "id")],
+    "programme_name": [("programme", "short_name_display"), ("programme", "short_name"), ("programme", "name")],
+    "home_mc_id": [("home_mc", "id")],
+    "home_mc_name": [("home_mc", "name"), ("home_mc", "full_name")],
+    "home_lc_id": [("home_lc", "id")],
+    "home_lc_name": [("home_lc", "name"), ("home_lc", "full_name")],
+    "host_lc_id": [("host_lc", "id")],
+    "host_lc_name": [("host_lc", "name"), ("host_lc", "full_name")],
+    "organisation_id": [("organisation", "id")],
+    "organisation_name": [("organisation", "name")],
+    "cost_total": [("opportunity_cost", "total")],
+    "cost_currency": [("opportunity_cost", "currency")],
+}
+
+INT_COLS = {"programme_id", "home_mc_id", "home_lc_id", "host_lc_id", "organisation_id",
+            "openings", "available_openings", "applicants_count", "accepted_count", "duration"}
+DATE_COLS = {"date_opened", "applications_close_date", "earliest_start_date", "latest_end_date"}
+DATETIME_COLS = {"remote_updated_at"}
+
+
+def to_int(v: Any) -> int | None:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def to_float(v: Any) -> float | None:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def to_date(v: Any) -> date | None:
+    if not v:
+        return None
+    try:
+        return date.fromisoformat(str(v)[:10])
+    except ValueError:
+        return None
+
+
+def to_datetime(v: Any) -> datetime | None:
+    """ISO-8601 из AIESEC (обычно с 'Z') -> naive UTC datetime."""
+    if not v:
+        return None
+    try:
+        s = str(v).replace("Z", "+00:00")
+        return datetime.fromisoformat(s).replace(tzinfo=None)
+    except ValueError:
+        return None
+
+
+def _dig(raw: dict, path: tuple[str, ...]) -> Any:
+    cur: Any = raw
+    for i, k in enumerate(path):
+        if not isinstance(cur, dict) or k not in cur:
+            return None if (i > 0 and cur is None) else _MISSING
+        cur = cur[k]
+    return cur
+
+
+def normalize(raw: dict, full: bool = True) -> dict:
+    out: dict[str, Any] = {"opportunity_id": int(raw["id"])}
+    for col, key in SCALARS.items():
+        if key in raw:
+            out[col] = raw[key]
+    for col, paths in NESTED.items():
+        vals = [_dig(raw, p) for p in paths]
+        present = [v for v in vals if v is not _MISSING]
+        if present:
+            out[col] = next((v for v in present if v not in (None, "")), None)
+    for col in INT_COLS & out.keys():
+        out[col] = to_int(out[col])
+    for col in DATE_COLS & out.keys():
+        out[col] = to_date(out[col])
+    for col in DATETIME_COLS & out.keys():
+        out[col] = to_datetime(out[col])
+    if "cost_total" in out:
+        out["cost_total"] = to_float(out["cost_total"])
+    if full:
+        out["raw"] = raw
+    return out
+
+----- FILE: parser/app/runtime.py -----
+"""Сборка зависимостей приложения. Импортируется один раз из main.py."""
+from __future__ import annotations
+
+import logging
+from contextlib import asynccontextmanager
+
+from apscheduler.schedulers.background import BackgroundScheduler
+from fastapi import FastAPI
+from sqlalchemy.orm import sessionmaker
+
+from .auth import OAuthRefresher
+from .client import AiesecClient
+from .config import Settings, Targets
+from .models import make_session_factory
+from .sync import SyncService
+from .tokens import (
+    make_init_token, make_persist_tokens, make_token_keepalive, token_status,
+)
+
+log = logging.getLogger("aiesec.runtime")
+
+settings = Settings()
+targets = Targets.load(settings.targets_file)
+SessionLocal: sessionmaker = make_session_factory(settings.database_url)
+
+refresher = (
+    OAuthRefresher(
+        settings.aiesec_auth_url, settings.aiesec_client_id, settings.aiesec_client_secret,
+        origin=settings.aiesec_auth_origin,
+    )
+    if settings.auto_refresh
+    else None
+)
+
+client = AiesecClient(
+    token=settings.aiesec_token or "",
+    url=settings.graphql_url,
+    per_page=settings.per_page,
+    max_pages=settings.max_pages,
+    delay=settings.request_delay_sec,
+    exclude_fields=targets.exclude_fields,
+    refresher=refresher,
+    refresh_token=settings.aiesec_refresh_token,
+    refresh_margin=settings.token_refresh_margin_sec,
+)
+service = SyncService(client, settings, targets, SessionLocal)
+scheduler = BackgroundScheduler(timezone="UTC")
+
+persist_tokens = make_persist_tokens(service)
+client.on_tokens = persist_tokens
+
+init_token = make_init_token(settings, client, service)
+token_keepalive = make_token_keepalive(client)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    init_token()
+    if settings.scheduler_enabled:
+        kw = dict(max_instances=1, coalesce=True)
+        scheduler.add_job(service.run_now, "interval", args=["incremental"],
+                          minutes=settings.incremental_interval_minutes, id="incremental", **kw)
+        scheduler.add_job(service.run_now, "interval", args=["reconcile"],
+                          hours=settings.reconcile_interval_hours, id="reconcile", **kw)
+        scheduler.add_job(service.expire_by_deadline, "interval", hours=1, id="expire", **kw)
+        if client.can_refresh:
+            scheduler.add_job(token_keepalive, "interval", minutes=15, id="token_keepalive", **kw)
+        if not service.has_bootstrapped():
+            scheduler.add_job(service.run_now, args=["full"], id="bootstrap")
+        scheduler.start()
+    yield
+    if scheduler.running:
+        scheduler.shutdown(wait=False)
+
+
+def create_app() -> FastAPI:
+    from .api import health, opportunities, sync as sync_api, admin
+
+    app = FastAPI(title="AIESEC opportunities parser", version="1.1.0", lifespan=lifespan)
+    app.include_router(health.router)
+    app.include_router(opportunities.router)
+    app.include_router(sync_api.router)
+    app.include_router(admin.router)
+    return app
+
+----- FILE: parser/app/sync/__init__.py -----
+from .service import SyncService
+
+__all__ = ["SyncService"]
+
+----- FILE: parser/app/sync/gapfill.py -----
+from __future__ import annotations
+
+import logging
+from collections import Counter
+
+from ..client import AiesecClient, NotSupported
+from ..models import utcnow
+from .ingest import Ingestor
+
+log = logging.getLogger("aiesec.sync.gapfill")
+
+
+def gap_fill(
+    client: AiesecClient, ingestor: Ingestor, ids: set[int],
+    stats: Counter, full_run,
+) -> None:
+    if len(ids) <= ingestor.settings.gap_fill_max:
+        try:
+            with ingestor.Session() as s:
+                now = utcnow()
+                for oid in ids:
+                    raw = client.get_opportunity(oid)
+                    if raw:
+                        stats[ingestor.upsert_one(s, raw, "gap_fill", True, now.date(), now)] += 1
+                s.commit()
+            stats["gap_fill"] = "by_id"
+            return
+        except NotSupported:
+            log.warning("opportunity(id) недоступен — догружаю полным проходом")
+    stats["gap_fill"] = "full_scan"
+    full_run(stats)
+
+----- FILE: parser/app/sync/ingest.py -----
+"""Upsert + actuality + close_missing. Единственный класс, который пишет в raw.opportunities."""
+from __future__ import annotations
+
+import logging
+from collections import Counter
+from datetime import date, datetime
+
+from sqlalchemy import select, update
+from sqlalchemy.orm import Session, sessionmaker
+
+from ..client import AiesecError
+from ..config import Settings, Targets
+from ..models import Opportunity, utcnow
+from ..normalize import normalize
+
+log = logging.getLogger("aiesec.sync.ingest")
+
+
+class Ingestor:
+    def __init__(self, settings: Settings, targets: Targets, session_factory: sessionmaker):
+        self.settings = settings
+        self.targets = targets
+        self.Session = session_factory
+
+    def actuality(self, d: dict, today: date, check_target: bool) -> tuple[bool, str | None]:
+        t = self.targets
+        if check_target:
+            in_country = d.get("home_mc_id") in t.mc_ids
+            in_city = d.get("home_lc_id") in t.lc_ids or d.get("host_lc_id") in t.lc_ids
+            if not (in_country or in_city):
+                return False, "out_of_target"
+        status = d.get("status")
+        if status is not None and "open" not in str(status).lower():
+            return False, "status_not_open"
+        close = d.get("applications_close_date")
+        if close and close < today:
+            return False, "deadline_passed"
+        slots = d.get("available_openings")
+        if t.only_with_openings and isinstance(slots, (int, float)) and slots <= 0:
+            return False, "no_openings"
+        return True, None
+
+    def upsert_one(
+        self, s: Session, raw: dict, source: str, full: bool, today: date, now: datetime,
+    ) -> str:
+        d = normalize(raw, full=full)
+        ok, reason = self.actuality(d, today, check_target=full)
+        row = s.get(Opportunity, d["opportunity_id"])
+
+        if row is None:
+            if not ok:
+                return f"skipped_{reason}"
+            s.add(Opportunity(**d, is_open=True, source_query=source,
+                              first_seen_at=now, last_seen_at=now, updated_at=now))
+            return "inserted"
+
+        was_open = row.is_open
+        for k, v in d.items():
+            setattr(row, k, v)
+        row.last_seen_at = now
+        row.updated_at = now
+        if ok:
+            row.is_open, row.close_reason, row.closed_at = True, None, None
+            return "updated" if was_open else "reopened"
+        if was_open:
+            row.is_open, row.close_reason, row.closed_at = False, reason, now
+            return "closed"
+        row.close_reason = row.close_reason or reason
+        return "still_closed"
+
+    def ingest_page(
+        self, s: Session, rows: list[dict], source: str,
+        stats: Counter, seen: set[int], full: bool,
+    ) -> None:
+        today, now = date.today(), utcnow()
+        for raw in rows:
+            seen.add(int(raw["id"]))
+            stats[self.upsert_one(s, raw, source, full, today, now)] += 1
+        s.commit()
+
+    def close_missing(
+        self, s: Session, seen: set[int], stats: Counter, reason: str = "not_in_open_list",
+    ) -> None:
+        open_ids = set(s.scalars(select(Opportunity.opportunity_id).where(Opportunity.is_open.is_(True))))
+        missing = open_ids - seen
+        if not missing:
+            return
+        if len(open_ids) >= 20 and len(missing) / len(open_ids) > self.settings.max_close_ratio:
+            raise AiesecError(
+                f"Предохранитель: к закрытию {len(missing)} из {len(open_ids)} открытых "
+                f"(> {self.settings.max_close_ratio:.0%}). Похоже на неполную выдачу, ничего не закрываю."
+            )
+        now = utcnow()
+        ids = list(missing)
+        for i in range(0, len(ids), 500):
+            s.execute(
+                update(Opportunity)
+                .where(Opportunity.opportunity_id.in_(ids[i:i + 500]))
+                .values(is_open=False, close_reason=reason, closed_at=now, updated_at=now)
+            )
+        s.commit()
+        stats["closed"] += len(missing)
+
+----- FILE: parser/app/sync/queries.py -----
+from __future__ import annotations
+
+import logging
+
+from ..client import AiesecClient, AiesecError
+from ..config import Targets
+
+log = logging.getLogger("aiesec.sync.queries")
+
+
+def build_queries(client: AiesecClient, targets: Targets, extra: dict | None = None) -> list[tuple[str, dict]]:
+    known = client.schema().filters
+    out = []
+    for name, geo in targets.geo_queries():
+        bad_geo = [k for k in geo if k not in known]
+        if bad_geo:
+            raise AiesecError(f"Схема не поддерживает гео-фильтры {bad_geo}")
+        filters = {**targets.base_filters, **(extra or {}), **geo}
+        for k in [k for k in filters if k not in known]:
+            log.warning("фильтр '%s' не поддерживается схемой — отбрасываю", k)
+            filters.pop(k)
+        out.append((name, filters))
+    if not out:
+        raise AiesecError("В targets.json нет ни стран, ни городов")
+    return out
+
+----- FILE: parser/app/sync/service.py -----
+"""Публичный фасад SyncService. Сохраняет прежний API для API-слоя и тестов."""
+from __future__ import annotations
+
+import logging
+import threading
+from collections import Counter
+from datetime import date
+
+from sqlalchemy import update
+from sqlalchemy.orm import sessionmaker
+
+from ..client import AiesecClient, AuthError
+from ..config import Settings, Targets
+from ..models import Opportunity, SyncRun, utcnow
+from .ingest import Ingestor
+from .state import StateStore
+from .strategies import FullStrategy, IncrementalStrategy, ReconcileStrategy
+
+log = logging.getLogger("aiesec.sync")
+
+
+class SyncService:
+    def __init__(self, client: AiesecClient, settings: Settings, targets: Targets,
+                 session_factory: sessionmaker):
+        self.client = client
+        self.settings = settings
+        self.targets = targets
+        self.Session = session_factory
+        self.state = StateStore(session_factory)
+        self.ingestor = Ingestor(settings, targets, session_factory)
+        full = FullStrategy(client, settings, targets, self.ingestor, self.state)
+        incremental = IncrementalStrategy(client, settings, targets, self.ingestor, self.state, full)
+        reconcile = ReconcileStrategy(client, settings, targets, self.ingestor, self.state, full)
+        self._strategies = {"full": full, "incremental": incremental, "reconcile": reconcile}
+        self._lock = threading.Lock()
+
+    # ---------- запуск ----------
+    def is_running(self) -> bool:
+        return self._lock.locked()
+
+    def try_start(self, kind: str) -> int | None:
+        if not self._lock.acquire(blocking=False):
+            return None
+        try:
+            with self.Session() as s:
+                run = SyncRun(kind=kind)
+                s.add(run)
+                s.commit()
+                return run.run_id
+        except Exception:
+            self._lock.release()
+            raise
+
+    def execute(self, run_id: int, kind: str) -> None:
+        stats: Counter = Counter()
+        status, error = "ok", None
+        try:
+            self._strategies[kind].run(stats)
+        except AuthError as e:
+            log.error("AIESEC отклонил токен: %s", e)
+            status, error = "auth_failed", f"AuthError: {e}"[:2000]
+        except Exception as e:  # noqa: BLE001
+            log.exception("sync %s упал", kind)
+            status, error = "failed", f"{type(e).__name__}: {e}"[:2000]
+        finally:
+            with self.Session() as s:
+                run = s.get(SyncRun, run_id)
+                run.status, run.error, run.stats, run.finished_at = status, error, dict(stats), utcnow()
+                s.commit()
+            self._lock.release()
+
+    def run_now(self, kind: str) -> None:
+        if getattr(self.client, "auth_ok", None) is False:
+            log.warning("sync %s пропущен: токен AIESEC отклонён. Обновите его: PUT /admin/token", kind)
+            return
+        run_id = self.try_start(kind)
+        if run_id is None:
+            log.info("sync %s пропущен: уже выполняется другой", kind)
+            return
+        self.execute(run_id, kind)
+
+    def run_sync_for_test(self, kind: str) -> None:
+        """Публичный запуск стратегии без блокировки. Только для тестов и ручного дерганья."""
+        self._strategies[kind].run(Counter())
+
+    # ---------- состояние ----------
+    def get_state(self, key: str) -> str | None:
+        return self.state.get(key)
+
+    def set_state(self, key: str, value: str) -> None:
+        self.state.set(key, value)
+
+    def set_states(self, items: dict[str, str]) -> None:
+        self.state.set_many(items)
+
+    def has_bootstrapped(self) -> bool:
+        return self.get_state("last_full_at") is not None
+
+    # ---------- вне блокировки ----------
+    def expire_by_deadline(self) -> int:
+        now = utcnow()
+        with self.Session() as s:
+            res = s.execute(
+                update(Opportunity)
+                .where(
+                    Opportunity.is_open.is_(True),
+                    Opportunity.applications_close_date.is_not(None),
+                    Opportunity.applications_close_date < date.today(),
+                )
+                .values(is_open=False, close_reason="deadline_passed", closed_at=now, updated_at=now)
+            )
+            s.commit()
+            if res.rowcount:
+                log.info("закрыто по дедлайну: %s", res.rowcount)
+            return res.rowcount or 0
+
+    def refresh_one(self, opportunity_id: int) -> dict:
+        raw = self.client.get_opportunity(opportunity_id)  # NotSupported пробросится наверх
+        if raw is None:
+            return {"result": "not_found_remote"}
+        with self.Session() as s:
+            result = self.ingestor.upsert_one(s, raw, "refresh", True, date.today(), utcnow())
+            s.commit()
+        return {"result": result}
+
+----- FILE: parser/app/sync/state.py -----
+from __future__ import annotations
+
+from sqlalchemy.orm import sessionmaker
+
+from ..models import SyncState
+
+
+class StateStore:
+    def __init__(self, session_factory: sessionmaker):
+        self.Session = session_factory
+
+    def get(self, key: str) -> str | None:
+        with self.Session() as s:
+            row = s.get(SyncState, key)
+            return row.value if row else None
+
+    def set(self, key: str, value: str) -> None:
+        with self.Session() as s:
+            s.merge(SyncState(key=key, value=value))
+            s.commit()
+
+    def set_many(self, items: dict[str, str]) -> None:
+        with self.Session() as s:
+            for k, v in items.items():
+                s.merge(SyncState(key=k, value=v))
+            s.commit()
+
+----- FILE: parser/app/sync/strategies.py -----
+"""Три стратегии синка: full, incremental, reconcile."""
+from __future__ import annotations
+
+import logging
+from collections import Counter
+from datetime import date, datetime, timedelta
+
+from sqlalchemy import select
+
+from ..client import AiesecClient, AiesecError
+from ..config import Settings, Targets
+from ..models import Opportunity, utcnow
+from ..normalize import normalize
+from .gapfill import gap_fill
+from .ingest import Ingestor
+from .queries import build_queries
+from .state import StateStore
+
+log = logging.getLogger("aiesec.sync.strategies")
+
+
+class FullStrategy:
+    def __init__(self, client: AiesecClient, settings: Settings, targets: Targets,
+                 ingestor: Ingestor, state: StateStore):
+        self.client, self.settings, self.targets = client, settings, targets
+        self.ingestor, self.state = ingestor, state
+
+    def run(self, stats: Counter) -> None:
+        started = utcnow()
+        seen: set[int] = set()
+        with self.ingestor.Session() as s:
+            for name, filters in build_queries(self.client, self.targets):
+                log.info("full → %s: %s", name, filters)
+                for rows in self.client.iter_pages(filters, "full"):
+                    self.ingestor.ingest_page(s, rows, name, stats, seen, full=True)
+            stats["fetched"] = len(seen)
+            self.ingestor.close_missing(s, seen, stats)
+        self.state.set("last_full_at", started.isoformat())
+        self.state.set("last_incremental_at", started.isoformat())
+
+
+class IncrementalStrategy:
+    def __init__(self, client: AiesecClient, settings: Settings, targets: Targets,
+                 ingestor: Ingestor, state: StateStore, full: FullStrategy):
+        self.client, self.settings, self.targets = client, settings, targets
+        self.ingestor, self.state, self.full = ingestor, state, full
+
+    def run(self, stats: Counter) -> None:
+        started = utcnow()
+        df = self.settings.incremental_date_filter
+        anchor = self.state.get("last_incremental_at") or self.state.get("last_full_at")
+        if not anchor:
+            stats["fallback"] = "full (первого полного прохода ещё не было)"
+            return self.full.run(stats)
+        if not self.client.supports_range_filter(df):
+            log.warning("фильтр '%s' {from,to} не поддерживается — делаю full", df)
+            stats["fallback"] = f"full (нет фильтра {df})"
+            return self.full.run(stats)
+
+        since = (datetime.fromisoformat(anchor) - timedelta(days=self.settings.incremental_overlap_days)).date()
+        stats["since"] = since.isoformat()
+        seen: set[int] = set()
+        with self.ingestor.Session() as s:
+            for name, filters in build_queries(self.client, self.targets, {df: {"from": since.isoformat()}}):
+                log.info("incremental → %s: %s", name, filters)
+                for rows in self.client.iter_pages(filters, "full"):
+                    self.ingestor.ingest_page(s, rows, name, stats, seen, full=True)
+        stats["fetched"] = len(seen)
+        self.state.set("last_incremental_at", started.isoformat())
+
+
+class ReconcileStrategy:
+    def __init__(self, client: AiesecClient, settings: Settings, targets: Targets,
+                 ingestor: Ingestor, state: StateStore, full: FullStrategy):
+        self.client, self.settings, self.targets = client, settings, targets
+        self.ingestor, self.state, self.full = ingestor, state, full
+
+    def run(self, stats: Counter) -> None:
+        started = utcnow()
+        with self.ingestor.Session() as s:
+            known_ids = set(s.scalars(select(Opportunity.opportunity_id)))
+            has_open = s.scalar(
+                select(Opportunity.opportunity_id).where(Opportunity.is_open.is_(True)).limit(1)
+            )
+        if not has_open:
+            stats["fallback"] = "full (в базе нет открытых)"
+            return self.full.run(stats)
+
+        seen: set[int] = set()
+        new_ids: set[int] = set()
+        today = date.today()
+        with self.ingestor.Session() as s:
+            for name, filters in build_queries(self.client, self.targets):
+                log.info("reconcile → %s: %s", name, filters)
+                for rows in self.client.iter_pages(filters, "slim"):
+                    known_rows = []
+                    for r in rows:
+                        oid = int(r["id"])
+                        seen.add(oid)
+                        if oid in known_ids:
+                            known_rows.append(r)
+                        elif self.ingestor.actuality(normalize(r, full=False), today, check_target=False)[0]:
+                            new_ids.add(oid)
+                    self.ingestor.ingest_page(s, known_rows, name, stats, set(), full=False)
+            stats["remote_open"] = len(seen)
+            self.ingestor.close_missing(s, seen, stats)
+        stats["new_found"] = len(new_ids)
+
+        if new_ids:
+            gap_fill(self.client, self.ingestor, new_ids, stats, self.full.run)
+        self.state.set("last_reconcile_at", started.isoformat())
+
+----- FILE: parser/app/tokens.py -----
+"""Жизненный цикл токенов AIESEC: загрузка при старте, сохранение, keepalive, диагностика."""
+from __future__ import annotations
+
+import hashlib
+import logging
+from datetime import datetime
+
+from .auth import OAuthRefresher
+from .client import AiesecClient, AiesecError, AuthError
+from .config import Settings
+from .models import utcnow
+from .sync import SyncService
+
+log = logging.getLogger("aiesec.tokens")
+
+
+def _sha(s: str) -> str:
+    return hashlib.sha256(s.encode()).hexdigest()
+
+
+def mask_token(t: str) -> str:
+    return f"…{t[-4:]} (длина {len(t)})" if len(t) > 8 else "…"
+
+
+def make_persist_tokens(service: SyncService):
+    def persist_tokens(c: AiesecClient) -> None:
+        """Сохраняет пару токенов одной транзакцией: refresh_token одноразовый."""
+        service.set_states({
+            "aiesec_token": c.token or "",
+            "aiesec_refresh_token": c.refresh_token or "",
+            "aiesec_token_expires_at": c.expires_at.isoformat() if c.expires_at else "",
+            "aiesec_token_updated_at": utcnow().isoformat(),
+        })
+    return persist_tokens
+
+
+def make_init_token(settings: Settings, client: AiesecClient, service: SyncService):
+    def init_token() -> None:
+        if not (settings.aiesec_token or settings.aiesec_refresh_token):
+            log.warning(
+                "AIESEC-токен не задан. Сервис поднялся в режиме ожидания. "
+                "Загрузите токен: PUT /admin/token (token или refresh_token)"
+            )
+            return
+        env_sha = _sha(f"{settings.aiesec_token or ''}|{settings.aiesec_refresh_token or ''}")
+        if service.get_state("token_env_sha") != env_sha:
+            service.set_states({
+                "token_env_sha": env_sha,
+                "aiesec_token": "",
+                "aiesec_refresh_token": "",
+                "aiesec_token_expires_at": "",
+            })
+        else:
+            access = service.get_state("aiesec_token") or ""
+            refresh = service.get_state("aiesec_refresh_token") or ""
+            exp = service.get_state("aiesec_token_expires_at") or ""
+            if access or refresh:
+                client.set_token(
+                    access or client.token, source="api",
+                    refresh_token=refresh or None,
+                    expires_at=datetime.fromisoformat(exp) if exp else None,
+                )
+                log.info("используются токены, сохранённые в БД (%s)", mask_token(client.token))
+        try:
+            client.ensure_fresh(refresh_if_unknown=True)
+        except AiesecError as e:
+            log.error("при старте не удалось обновить токен: %s", e)
+    return init_token
+
+
+def make_token_keepalive(client: AiesecClient):
+    def token_keepalive() -> None:
+        if client.auth_ok is False:
+            return
+        try:
+            client.ensure_fresh()
+        except AiesecError as e:
+            log.error("keepalive: %s", e)
+    return token_keepalive
+
+
+def token_status(client: AiesecClient, service: SyncService) -> dict:
+    left = client.seconds_left()
+    return {
+        "masked": mask_token(client.token) if client.token else None,
+        "source": client.token_source,
+        "auth": {True: "ok", False: "failed", None: "unknown"}[client.auth_ok],
+        "auto_refresh": client.can_refresh,
+        "expires_in_sec": int(left) if left is not None else None,
+        "last_auth_error": client.auth_error,
+        "checked_at": client.auth_checked_at,
+        "updated_at": service.get_state("aiesec_token_updated_at"),
+    }
+
+
+def clean_token(v: str) -> str:
+    return v.strip().strip("\"'").removeprefix("Bearer ").strip()
+
+----- FILE: parser/migrations/env.py -----
+from __future__ import annotations
+
+from logging.config import fileConfig
+
+from alembic import context
+from sqlalchemy import engine_from_config, inspect, pool
+
+from app.config import Settings
+from app.models import Base
+
+config = context.config
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
+
+settings = Settings()
+config.set_main_option("sqlalchemy.url", settings.database_url)
+
+target_metadata = Base.metadata
+
+
+def _require_schemas(connection) -> None:
+    """Схемы создаёт db-init (bootstrap.sql). Здесь — только проверка."""
+    schema = settings.db_schema
+    if not schema:
+        return
+    existing = set(inspect(connection).get_schema_names())
+    if schema not in existing:
+        raise RuntimeError(
+            f"Схема '{schema}' не существует в БД. "
+            f"Проверьте: docker compose logs db-init. "
+            f"Если db-init не отработал — пересоздайте инфраструктуру: "
+            f"docker compose down -v && docker compose up -d"
+        )
+
+def run_migrations_offline() -> None:
+    context.configure(
+        url=settings.database_url,
+        target_metadata=target_metadata,
+        literal_binds=True,
+        dialect_opts={"paramstyle": "named"},
+        version_table_schema=settings.db_schema or None,
+        include_schemas=True,
+    )
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+def run_migrations_online() -> None:
+    connectable = engine_from_config(
+        config.get_section(config.config_ini_section, {}),
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+    )
+    with connectable.connect() as connection:
+        _require_schemas(connection)
+        connection.commit()
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            version_table_schema=settings.db_schema or None,
+            include_schemas=True,
+        )
+        with context.begin_transaction():
+            context.run_migrations()
+
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()
+
+----- FILE: parser/migrations/script.py.mako -----
+"""${message}
+
+Revision ID: ${up_revision}
+Revises: ${down_revision | comma,n}
+Create Date: ${create_date}
+"""
+from __future__ import annotations
+
+from alembic import op
+import sqlalchemy as sa
+${imports if imports else ""}
+
+revision = ${repr(up_revision)}
+down_revision = ${repr(down_revision)}
+branch_labels = ${repr(branch_labels)}
+depends_on = ${repr(depends_on)}
+
+
+def upgrade() -> None:
+    ${upgrades if upgrades else "pass"}
+
+
+def downgrade() -> None:
+    ${downgrades if downgrades else "pass"}
+
+----- FILE: parser/migrations/versions/0001_initial.py -----
+"""initial: parser.opportunities, parser.sync_runs, parser.sync_state
+
+Revision ID: 0001
+Revises:
+Create Date: 2026-10-17
+"""
+from __future__ import annotations
+
+from alembic import op
+import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
+
+revision = "0001"
+down_revision = None
+branch_labels = None
+depends_on = None
+
+SCHEMA = "parser"
+
+
+def upgrade() -> None:
+    op.create_table(
+        "opportunities",
+        sa.Column("opportunity_id", sa.Integer(), primary_key=True, autoincrement=False),
+        sa.Column("title", sa.Text()),
+        sa.Column("status", sa.String(50)),
+        sa.Column("current_status", sa.String(50)),
+        sa.Column("programme_id", sa.Integer(), index=True),
+        sa.Column("programme_name", sa.String(100)),
+        sa.Column("home_mc_id", sa.Integer(), index=True),
+        sa.Column("home_mc_name", sa.String(200)),
+        sa.Column("home_lc_id", sa.Integer(), index=True),
+        sa.Column("home_lc_name", sa.String(200)),
+        sa.Column("host_lc_id", sa.Integer(), index=True),
+        sa.Column("host_lc_name", sa.String(200)),
+        sa.Column("location", sa.String(300)),
+        sa.Column("organisation_id", sa.Integer()),
+        sa.Column("organisation_name", sa.String(300)),
+        sa.Column("openings", sa.Integer()),
+        sa.Column("available_openings", sa.Integer()),
+        sa.Column("applicants_count", sa.Integer()),
+        sa.Column("accepted_count", sa.Integer()),
+        sa.Column("date_opened", sa.Date()),
+        sa.Column("applications_close_date", sa.Date(), index=True),
+        sa.Column("earliest_start_date", sa.Date()),
+        sa.Column("latest_end_date", sa.Date()),
+        sa.Column("duration", sa.Integer()),
+        sa.Column("experience_type", sa.String(100)),
+        sa.Column("cost_total", sa.Float()),
+        sa.Column("cost_currency", sa.String(10)),
+        sa.Column("remote_updated_at", sa.DateTime(), index=True),
+        sa.Column("skills", postgresql.JSONB()),
+        sa.Column("backgrounds", postgresql.JSONB()),
+        sa.Column("languages", postgresql.JSONB()),
+        sa.Column("study_levels", postgresql.JSONB()),
+        sa.Column("nationalities", postgresql.JSONB()),
+        sa.Column("skills_developments", postgresql.JSONB()),
+        sa.Column("raw", postgresql.JSONB()),
+        sa.Column("is_open", sa.Boolean(), nullable=False, server_default=sa.text("true"), index=True),
+        sa.Column("close_reason", sa.String(50)),
+        sa.Column("source_query", sa.String(50)),
+        sa.Column("first_seen_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
+        sa.Column("last_seen_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
+        sa.Column("closed_at", sa.DateTime()),
+        sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
+        schema=SCHEMA,
+    )
+
+    op.create_table(
+        "sync_runs",
+        sa.Column("run_id", sa.Integer(), primary_key=True, autoincrement=True),
+        sa.Column("kind", sa.String(20), nullable=False),
+        sa.Column("status", sa.String(20), nullable=False, server_default="running"),
+        sa.Column("started_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
+        sa.Column("finished_at", sa.DateTime()),
+        sa.Column("stats", postgresql.JSONB()),
+        sa.Column("error", sa.Text()),
+        schema=SCHEMA,
+    )
+
+    op.create_table(
+        "sync_state",
+        sa.Column("key", sa.String(50), primary_key=True),
+        sa.Column("value", sa.Text()),
+        schema=SCHEMA,
+    )
+
+
+def downgrade() -> None:
+    op.drop_table("sync_state", schema=SCHEMA)
+    op.drop_table("sync_runs", schema=SCHEMA)
+    op.drop_table("opportunities", schema=SCHEMA)
+
+----- FILE: parser/migrations/versions/0002_catalog_v1.py -----
+"""catalog v1: opportunity_v1, opportunity_requirement_v1, sync_state_v1
+
+Revision ID: 0002
+Revises: 0001
+Create Date: 2026-11-11
+"""
+from __future__ import annotations
+from alembic import op
+
+revision = "0002"
+down_revision = "0001"
+branch_labels = None
+depends_on = None
+
+SCHEMA = "parser"
+CATALOG = "catalog"
+
+
+def upgrade() -> None:
+    # 4.1 catalog.opportunity_v1
+    op.execute(f"""
+        CREATE OR REPLACE VIEW {CATALOG}.opportunity_v1 AS
+        SELECT
+            o.opportunity_id,
+            o.title,
+            (regexp_replace(o.title, '\\s*\\[\\d+\\s*weeks?\\]\\s*$', '', 'i')
+                || '#' || COALESCE(o.host_lc_id::text, '0')) AS family_key,
+            o.programme_id,
+            CASE o.programme_id
+                WHEN 7 THEN 'volunteer'
+                WHEN 8 THEN 'talent'
+                WHEN 9 THEN 'teacher'
+                ELSE NULL
+            END AS programme_kind,
+            (o.raw->'home_mc'->>'iso_code')::char(2) AS country_code,
+            o.home_mc_name AS country_name,
+            o.host_lc_id AS lc_id,
+            o.host_lc_name AS lc_name,
+            o.location,
+            o.organisation_id,
+            o.organisation_name,
+            o.openings,
+            o.available_openings,
+            o.applicants_count,
+            o.accepted_count,
+            o.date_opened,
+            o.applications_close_date,
+            o.earliest_start_date,
+            o.latest_end_date,
+            o.duration AS duration_weeks,
+            o.experience_type,
+            o.cost_total,
+            o.cost_currency,
+            o.is_open,
+            o.close_reason,
+            o.remote_updated_at,
+            o.first_seen_at,
+            o.last_seen_at,
+            o.updated_at
+        FROM {SCHEMA}.opportunities o
+    """)
+
+    # 4.2 catalog.opportunity_requirement_v1
+    op.execute(f"""
+        CREATE OR REPLACE VIEW {CATALOG}.opportunity_requirement_v1 AS
+        WITH expanded AS (
+            SELECT opportunity_id, 'skill' AS kind,
+                   jsonb_array_elements(COALESCE(o.skills, '[]'::jsonb)) AS el
+            FROM {SCHEMA}.opportunities o
+            UNION ALL
+            SELECT opportunity_id, 'background',
+                   jsonb_array_elements(COALESCE(o.backgrounds, '[]'::jsonb))
+            FROM {SCHEMA}.opportunities o
+            UNION ALL
+            SELECT opportunity_id, 'language',
+                   jsonb_array_elements(COALESCE(o.languages, '[]'::jsonb))
+            FROM {SCHEMA}.opportunities o
+            UNION ALL
+            SELECT opportunity_id, 'study_level',
+                   jsonb_array_elements(COALESCE(o.study_levels, '[]'::jsonb))
+            FROM {SCHEMA}.opportunities o
+            UNION ALL
+            SELECT opportunity_id, 'nationality',
+                   jsonb_array_elements(COALESCE(o.nationalities, '[]'::jsonb))
+            FROM {SCHEMA}.opportunities o
+            UNION ALL
+            SELECT opportunity_id, 'skill_development',
+                   jsonb_array_elements(COALESCE(o.skills_developments, '[]'::jsonb))
+            FROM {SCHEMA}.opportunities o
+        )
+        SELECT
+            opportunity_id,
+            kind,
+            (el->>'id')::int          AS constant_id,
+            el->>'name'               AS constant_name,
+            el->>'parent_name'        AS parent_name,
+            el->>'option'             AS option,
+            (el->>'level')::int       AS level
+        FROM expanded
+        WHERE el IS NOT NULL
+    """)
+
+    # 4.3 catalog.sync_state_v1
+    op.execute(f"""
+        CREATE OR REPLACE VIEW {CATALOG}.sync_state_v1 AS
+        SELECT
+            (SELECT MAX(COALESCE(updated_at, first_seen_at))
+               FROM {SCHEMA}.opportunities)                          AS committed_watermark,
+            (SELECT MAX(finished_at)
+               FROM {SCHEMA}.sync_runs
+              WHERE status = 'success')                              AS last_success_at,
+            (SELECT COUNT(*) FROM {SCHEMA}.opportunities)            AS rows_total,
+            (SELECT COUNT(*) FROM {SCHEMA}.opportunities
+              WHERE is_open)                                         AS rows_open,
+            COALESCE(
+                (SELECT value FROM {SCHEMA}.sync_state
+                  WHERE key = 'last_run_kind'),
+                (SELECT kind FROM {SCHEMA}.sync_runs
+                  ORDER BY started_at DESC LIMIT 1)
+            )                                                        AS last_run_kind
+    """)
+
+
+def downgrade() -> None:
+    op.execute(f"DROP VIEW IF EXISTS {CATALOG}.sync_state_v1")
+    op.execute(f"DROP VIEW IF EXISTS {CATALOG}.opportunity_requirement_v1")
+    op.execute(f"DROP VIEW IF EXISTS {CATALOG}.opportunity_v1")
+
+----- FILE: parser/pytest.ini -----
+[pytest]
+testpaths = tests
+python_files = test_*.py
+addopts =
+    -ra
+    -m "not live"
+    --strict-markers
+    --cov=app
+    --cov-report=term-missing:skip-covered
+    --cov-report=html:htmlcov
+    --cov-report=xml:coverage.xml
+    --cov-fail-under=70
+markers =
+    live: тесты против настоящего AIESEC
+
+----- FILE: parser/targets.json -----
+{
+  "countries": {
+    "Tunisia": 1559,
+    "Egypt": 1609,
+    "India": 1585,
+    "Sri Lanka": 1623,
+    "Vietnam": 504,
+    "Azerbaijan": 539,
+    "Serbia": 1547,
+    "Morocco": 1552,
+    "Bahrain": 518,
+    "Indonesia": 1539,
+    "Armenia": 1541,
+    "Mexico": 1589,
+    "Kazakhstan": 494
+  },
+  "turkey": {
+    "mc_id": 1622,
+    "cities": {
+      "Adana": 941,
+      "Sakarya": 2441,
+      "Konya": 2452,
+      "Kütahya": 2848,
+      "Denizli": 527
+    }
+  },
+  "base_filters": {
+    "programmes": [7,8, 9],
+    "status": "open"
+  },
+  "only_with_openings": true,
+  "exclude_fields": []
+}
+

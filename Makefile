@@ -15,12 +15,12 @@ ensure-env:
 	@test -f .env || $(MAKE) .env
 
 # -------------------- compose --------------------
-COMPOSE      := docker compose -f docker-compose.yml
-COMPOSE_DEV  := docker compose -f docker-compose.yml -f docker-compose.dev.yml
-TOOLS        := --profile tools
+COMPOSE          := docker compose -f docker-compose.yml
+COMPOSE_DEV      := docker compose -f docker-compose.yml -f docker-compose.dev.yml
+COMPOSE_TEST     := docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.test.yml
+TOOLS            := --profile tools
 
-# Сервисы, к которым применимы generic-цели (up/down/logs/shell/migrate/tests).
-# web вынесен отдельно в web-* (нет shell/migrate, тесты через npm).
+# Сервисы, к которым применимы generic-цели.
 SERVICES := backend parser matcher
 
 # -------------------- phony --------------------
@@ -28,14 +28,13 @@ SERVICES := backend parser matcher
         up down logs ps psql rebuild \
         shell migrate \
         dev-up dev-down dev-restart dev-logs dev-shell \
-        test test-file test-cov test-collect test-live \
+        test test-backend test-parser test-matcher test-web test-file \
         openapi-snapshot \
         web-install web-dev web-build web-lint web-test web-coverage \
         $(addprefix up-,$(SERVICES)) \
         $(addprefix rebuild-,$(SERVICES)) \
         $(addprefix shell-,$(SERVICES)) \
         $(addprefix migrate-,$(SERVICES)) \
-        $(addprefix test-,$(SERVICES)) \
         $(addprefix test-cov-,$(SERVICES)) \
         $(addprefix test-collect-,$(SERVICES)) \
         $(addprefix test-file-,$(SERVICES))
@@ -46,7 +45,6 @@ help:            ## показать список команд
 
 # ==========================================================
 #  GENERIC: работают для любого SERVICE из $(SERVICES)
-#  Пример: make up SERVICE=backend   |   make up-backend
 # ==========================================================
 
 up: ensure-env            ## up [SERVICE=...]: поднять (все или один)
@@ -93,33 +91,65 @@ dev-shell:                ## dev-shell SERVICE=...
 	@test -n "$(SERVICE)" || (echo "укажите SERVICE=backend|parser|matcher" && exit 1)
 	$(COMPOSE_DEV) exec $(SERVICE) sh
 
-# --- tests ---
+# ==========================================================
+#  TESTS
+# ==========================================================
+
+# Все тесты или тесты конкретного сервиса.
 test:                     ## test [SERVICE=...]: все тесты или тесты сервиса
 ifeq ($(SERVICE),)
 	$(MAKE) test-backend test-parser test-matcher test-web
 else ifeq ($(SERVICE),web)
 	$(MAKE) web-test
+else ifeq ($(SERVICE),backend)
+	$(MAKE) test-backend
+else ifeq ($(SERVICE),parser)
+	$(MAKE) test-parser
+else ifeq ($(SERVICE),matcher)
+	$(MAKE) test-matcher
 else
-	$(COMPOSE_DEV) $(TOOLS) run --rm $(SERVICE)-tests
+	@echo "неизвестный SERVICE=$(SERVICE); допустимо: backend|parser|matcher|web" && exit 1
 endif
+
+# backend — единственный, кому нужен docker-compose.test.yml
+# (postgres-test-init + postgres-test-parser-init + bootstrap + catalog-вьюхи)
+test-backend:             ## backend-тесты на Postgres с bootstrap и catalog-вьюхами
+	$(COMPOSE_TEST) $(TOOLS) run --rm backend-tests
+test-web:                 ## web-тесты (vitest)
+	cd web && npm run test -- --run
+# parser и matcher — на sqlite/fake, без postgres-test*. Без test.yml,
+# чтобы compose не валидировал чужие зависимости.
+test-parser:              ## parser-тесты (sqlite, FakeClient)
+	$(COMPOSE_DEV) $(TOOLS) run --rm parser-tests
+
+test-matcher:             ## matcher-тесты (FakeCatalogReader)
+	$(COMPOSE_DEV) $(TOOLS) run --rm matcher-tests
 
 test-file:                ## test-file SERVICE=backend F=tests/...: один файл
 	@test -n "$(SERVICE)" -a -n "$(F)" || (echo "SERVICE=... F=tests/..." && exit 1)
 ifeq ($(SERVICE),web)
 	cd web && npx vitest run $(F)
+else ifeq ($(SERVICE),backend)
+	$(COMPOSE_TEST) $(TOOLS) run --rm backend-tests $(F)
 else
 	$(COMPOSE_DEV) $(TOOLS) run --rm $(SERVICE)-tests $(F)
 endif
 
 test-collect:             ## test-collect SERVICE=backend|parser
 	@test -n "$(SERVICE)" || (echo "укажите SERVICE" && exit 1)
+ifeq ($(SERVICE),backend)
+	$(COMPOSE_TEST) $(TOOLS) run --rm backend-tests --collect-only -o addopts=""
+else
 	$(COMPOSE_DEV) $(TOOLS) run --rm $(SERVICE)-tests --collect-only -o addopts=""
+endif
 
 test-cov:                 ## test-cov [SERVICE=...]: coverage (порог — в pytest.ini)
 ifeq ($(SERVICE),)
 	$(MAKE) test-cov-backend test-cov-parser test-cov-matcher web-coverage
 else ifeq ($(SERVICE),web)
 	$(MAKE) web-coverage
+else ifeq ($(SERVICE),backend)
+	$(COMPOSE_TEST) $(TOOLS) run --rm backend-tests --tb=no
 else
 	$(COMPOSE_DEV) $(TOOLS) run --rm $(SERVICE)-tests --tb=no
 endif
@@ -128,21 +158,17 @@ test-live:                ## live-тесты парсера против AIESEC
 	$(COMPOSE_DEV) $(TOOLS) run --rm -e AIESEC_TOKEN=$${AIESEC_TOKEN:?нужен AIESEC_TOKEN} parser-tests -m live -o addopts=""
 
 # ==========================================================
-#  PER-SERVICE АЛИАСЫ (тонкие, для tab-completion)
-#  Генерируются из $(SERVICES) — добавь сервис в SERVICES,
-#  получишь up-<svc>, rebuild-<svc>, shell-<svc>, test-<svc> и т.д.
+#  PER-SERVICE АЛИАСЫ (без test-* — тесты явные выше)
 # ==========================================================
 define per_service_aliases
 up-$(1):            ; $$(MAKE) up            SERVICE=$(1)
 rebuild-$(1):       ; $$(MAKE) rebuild       SERVICE=$(1)
 shell-$(1):         ; $$(MAKE) shell         SERVICE=$(1)
-test-$(1):          ; $$(MAKE) test          SERVICE=$(1)
 test-cov-$(1):      ; $$(MAKE) test-cov      SERVICE=$(1)
 test-collect-$(1):  ; $$(MAKE) test-collect  SERVICE=$(1)
 test-file-$(1):     ; $$(MAKE) test-file     SERVICE=$(1) F=$$(F)
 endef
 
-# migrate применим только к сервисам с alembic (backend, parser)
 $(eval $(call per_service_aliases,backend))
 $(eval $(call per_service_aliases,parser))
 $(eval $(call per_service_aliases,matcher))
@@ -154,7 +180,7 @@ migrate-parser:     ; $(MAKE) migrate SERVICE=parser
 # ==========================================================
 openapi-snapshot:         ## пересоздать backend/openapi/backend.v1.json
 	rm -f backend/openapi/backend.v1.json
-	$(COMPOSE_DEV) $(TOOLS) run --rm backend-tests tests/test_openapi.py -o addopts=""
+	$(COMPOSE_TEST) $(TOOLS) run --rm backend-tests tests/test_openapi.py -o addopts=""
 
 # ==========================================================
 #  WEB (локально, без docker)

@@ -1,0 +1,82 @@
+services:
+  postgres-test:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: aiesec_test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d aiesec_test"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  postgres-test-init:
+    image: pgvector/pgvector:pg16
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: postgres
+    volumes:
+      - ./infra/postgres/bootstrap.sql:/bootstrap.sql:ro
+    entrypoint: ["psql"]
+    command:
+      - "-h"
+      - "postgres-test"
+      - "-U"
+      - "postgres"
+      - "-d"
+      - "aiesec_test"
+      - "-v"
+      - "ON_ERROR_STOP=1"
+      - "-v"
+      - "parser_pw=parser"
+      - "-v"
+      - "backend_pw=backend"
+      - "-v"
+      - "matcher_pw=matcher"
+      - "-v"
+      - "app_db=aiesec_test"
+      - "-f"
+      - "/bootstrap.sql"
+    restart: "no"
+
+  postgres-test-parser-init:
+    build:
+      context: .
+      dockerfile: infra/docker/parser.Dockerfile
+      args:
+        REQUIREMENTS: /srv/requirements/parser-dev.txt
+    image: aiesec-parser:dev
+    depends_on:
+      postgres-test-init:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres-test:5432/aiesec_test
+      DB_SCHEMA: parser
+      ALLOW_NO_TOKEN: "true"
+    entrypoint: ["alembic", "upgrade", "head"]
+    restart: "no"
+
+  backend-tests:
+    build:
+      context: .
+      dockerfile: infra/docker/backend.Dockerfile
+      args:
+        REQUIREMENTS: /srv/requirements/backend-dev.txt
+    environment:
+      AIESEC_DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres-test:5432/aiesec_test
+    depends_on:
+      postgres-test-init:
+        condition: service_completed_successfully
+      postgres-test-parser-init:
+        condition: service_completed_successfully
+    profiles: ["tools"]
+    working_dir: /srv
+    volumes:
+      - ./backend/app:/srv/app:ro
+      - ./backend/tests:/srv/tests:ro
+      - ./backend/pytest.ini:/srv/pytest.ini:ro
+      - ./backend/migrations:/srv/migrations:ro
+    command: ["python", "-m", "pytest", "-c", "/srv/pytest.ini", "tests"]

@@ -21,15 +21,43 @@ ROWS = [
 
 @pytest.fixture
 def api(monkeypatch):
+    from app import runtime as rt
+    from app.api import admin as admin_mod
+    from app.api import health as health_mod
+    from app.api import opportunities as opps_mod
+    from app.api import sync as sync_mod
+
     engine = main.SessionLocal.kw["bind"]
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     fake = FakeClient([dict(r) for r in ROWS])
-    monkeypatch.setattr(main.service, "client", fake)
+    fake.auth_ok = True
+
+    # 1. Отключаем реальную сеть при старте lifespan
+    monkeypatch.setattr(rt, "init_token", lambda: None)
+    monkeypatch.setattr(rt, "token_keepalive", lambda: None)
+    monkeypatch.setattr(main, "init_token", lambda: None)
+    monkeypatch.setattr(main, "token_keepalive", lambda: None)
+
+    # 2. Подменяем клиент во всех модулях, где он импортирован напрямую
+    monkeypatch.setattr(rt, "client", fake)
     monkeypatch.setattr(main, "client", fake)
+    monkeypatch.setattr(admin_mod, "client", fake)
+    monkeypatch.setattr(health_mod, "client", fake)
+
+    # 3. Подменяем клиент у service и у всех стратегий
+    monkeypatch.setattr(rt.service, "client", fake)
+    monkeypatch.setattr(main.service, "client", fake)
+    for strategy in rt.service._strategies.values():
+        monkeypatch.setattr(strategy, "client", fake)
+
+    # 4. Обнуляем refresher у фейка (чтобы никаких попыток refresh)
+    fake.refresher = None
+    fake.refresh_token = None
+    fake.expires_at = None
+
     with TestClient(main.app) as c:
         yield SimpleNamespace(c=c, fake=fake)
-
 
 @pytest.fixture
 def seeded(api):
