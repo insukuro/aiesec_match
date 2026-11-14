@@ -21,9 +21,14 @@ export function setUnauthorizedHandler(fn: (() => void) | null): void {
 }
 
 export class ApiError extends Error {
-  constructor(public readonly status: number, public readonly problem: Problem) {
+  readonly status: number;
+  readonly problem: Problem;
+
+  constructor(status: number, problem: Problem) {
     super(problem.title || `HTTP ${status}`);
     this.name = "ApiError";
+    this.status = status;
+    this.problem = problem;
   }
 }
 

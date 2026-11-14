@@ -19,139 +19,149 @@ COMPOSE      := docker compose -f docker-compose.yml
 COMPOSE_DEV  := docker compose -f docker-compose.yml -f docker-compose.dev.yml
 TOOLS        := --profile tools
 
+# Сервисы, к которым применимы generic-цели (up/down/logs/shell/migrate/tests).
+# web вынесен отдельно в web-* (нет shell/migrate, тесты через npm).
+SERVICES := backend parser matcher
+
 # -------------------- phony --------------------
 .PHONY: help \
-        up down logs ps psql \
-        rebuild rebuild-backend rebuild-parser rebuild-web \
-        shell shell-backend shell-parser \
-        migrate migrate-backend migrate-parser \
-        dev-up dev-down dev-restart dev-logs \
-        dev-shell dev-shell-backend dev-shell-parser \
-        test test-backend test-parser \
-        test-file-backend test-file-parser \
-        test-live test-collect-backend test-collect-parser \
-        test-cov test-cov-backend test-cov-parser \
+        up down logs ps psql rebuild \
+        shell migrate \
+        dev-up dev-down dev-restart dev-logs dev-shell \
+        test test-file test-cov test-collect test-live \
         openapi-snapshot \
-        web-install web-dev web-build web-lint web-test
+        web-install web-dev web-build web-lint web-test web-coverage \
+        $(addprefix up-,$(SERVICES)) \
+        $(addprefix rebuild-,$(SERVICES)) \
+        $(addprefix shell-,$(SERVICES)) \
+        $(addprefix migrate-,$(SERVICES)) \
+        $(addprefix test-,$(SERVICES)) \
+        $(addprefix test-cov-,$(SERVICES)) \
+        $(addprefix test-collect-,$(SERVICES)) \
+        $(addprefix test-file-,$(SERVICES))
 
 # -------------------- help --------------------
 help:            ## показать список команд
-	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "\033[36m%-24s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "\033[36m%-28s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-# -------------------- prod --------------------
-up: ensure-env            ## prod-стек (backend, parser, web, postgres)
-	$(COMPOSE) up -d --build
+# ==========================================================
+#  GENERIC: работают для любого SERVICE из $(SERVICES)
+#  Пример: make up SERVICE=backend   |   make up-backend
+# ==========================================================
 
-down:                     ## остановить (volume сохраняется)
-	$(COMPOSE) down
+up: ensure-env            ## up [SERVICE=...]: поднять (все или один)
+	$(COMPOSE) up -d --build $(SERVICE)
 
-logs:                     ## логи всех сервисов
-	$(COMPOSE) logs -f
+down:                     ## down [SERVICE=...]: остановить
+	$(COMPOSE) down $(SERVICE)
 
-ps:                       ## статус контейнеров
+logs:                     ## logs [SERVICE=...]: логи
+	$(COMPOSE) logs -f $(SERVICE)
+
+ps:                       ## ps: статус контейнеров
 	$(COMPOSE) ps
 
-psql:                     ## psql в контейнер postgres (БД приложения)
+psql:                     ## psql в контейнер postgres
 	$(COMPOSE) exec postgres psql -U $${POSTGRES_USER:-platform} $${APP_DB:-aiesec_match}
 
-rebuild:                  ## пересобрать всё
-	$(COMPOSE) build --no-cache
+rebuild:                  ## rebuild [SERVICE=...]: пересобрать без кэша и перезапустить
+	$(COMPOSE) build --no-cache $(SERVICE)
+	$(COMPOSE) up -d $(SERVICE)
 
-rebuild-backend:
-	$(COMPOSE) build --no-cache backend && $(COMPOSE) up -d backend
+shell:                    ## shell SERVICE=backend|parser|matcher
+	@test -n "$(SERVICE)" || (echo "укажите SERVICE=backend|parser|matcher" && exit 1)
+	$(COMPOSE) exec $(SERVICE) sh
 
-rebuild-parser:
-	$(COMPOSE) build --no-cache parser && $(COMPOSE) up -d parser
+migrate:                  ## migrate SERVICE=backend|parser
+	@test -n "$(SERVICE)" || (echo "укажите SERVICE=backend|parser" && exit 1)
+	$(COMPOSE) exec $(SERVICE) alembic upgrade head
 
-rebuild-web:
-	$(COMPOSE) build --no-cache web && $(COMPOSE) up -d web
-
-shell: shell-backend     ## короткий алиас: shell в backend
-
-shell-backend:
-	$(COMPOSE) exec backend sh
-
-shell-parser:
-	$(COMPOSE) exec parser sh
-
-migrate: migrate-backend ## короткий алиас: миграции в backend
-
-migrate-backend:
-	$(COMPOSE) exec backend alembic upgrade head
-
-migrate-parser:
-	$(COMPOSE) exec parser alembic upgrade head
-
-# -------------------- dev --------------------
-dev-up: ensure-env        ## dev-стек: postgres, db-init, backend, parser (web — локально)
+# --- dev ---
+dev-up: ensure-env        ## dev-стек (postgres, db-init, backend, parser, matcher)
 	$(COMPOSE_DEV) up -d --build postgres db-init backend parser matcher
 
-dev-down:                 ## остановить dev-стек (volume сохраняется)
+dev-down:
 	$(COMPOSE_DEV) down
 
-dev-restart:              ## перезапустить backend+parser (после правок в Dockerfile)
-	$(COMPOSE_DEV) up -d --build backend parser
+dev-restart:              ## dev-restart [SERVICE=...]
+	$(COMPOSE_DEV) up -d --build $(or $(SERVICE),backend parser)
 
-dev-logs:                 ## логи backend+parser
-	$(COMPOSE_DEV) logs -f backend parser
+dev-logs:
+	$(COMPOSE_DEV) logs -f $(or $(SERVICE),backend parser)
 
-dev-shell: dev-shell-backend ## алиас
+dev-shell:                ## dev-shell SERVICE=...
+	@test -n "$(SERVICE)" || (echo "укажите SERVICE=backend|parser|matcher" && exit 1)
+	$(COMPOSE_DEV) exec $(SERVICE) sh
 
-dev-shell-backend:
-	$(COMPOSE_DEV) exec backend sh
+# --- tests ---
+test:                     ## test [SERVICE=...]: все тесты или тесты сервиса
+ifeq ($(SERVICE),)
+	$(MAKE) test-backend test-parser test-matcher test-web
+else ifeq ($(SERVICE),web)
+	$(MAKE) web-test
+else
+	$(COMPOSE_DEV) $(TOOLS) run --rm $(SERVICE)-tests
+endif
 
-dev-shell-parser:
-	$(COMPOSE_DEV) exec parser sh
+test-file:                ## test-file SERVICE=backend F=tests/...: один файл
+	@test -n "$(SERVICE)" -a -n "$(F)" || (echo "SERVICE=... F=tests/..." && exit 1)
+ifeq ($(SERVICE),web)
+	cd web && npx vitest run $(F)
+else
+	$(COMPOSE_DEV) $(TOOLS) run --rm $(SERVICE)-tests $(F)
+endif
 
-# -------------------- tests --------------------
-test: test-backend test-parser ## все тесты
+test-collect:             ## test-collect SERVICE=backend|parser
+	@test -n "$(SERVICE)" || (echo "укажите SERVICE" && exit 1)
+	$(COMPOSE_DEV) $(TOOLS) run --rm $(SERVICE)-tests --collect-only -o addopts=""
 
-test-backend:             ## backend-тесты (pytest в одноразовом контейнере)
-	$(COMPOSE_DEV) $(TOOLS) run --rm backend-tests
+test-cov:                 ## test-cov [SERVICE=...]: coverage (порог — в pytest.ini)
+ifeq ($(SERVICE),)
+	$(MAKE) test-cov-backend test-cov-parser test-cov-matcher web-coverage
+else ifeq ($(SERVICE),web)
+	$(MAKE) web-coverage
+else
+	$(COMPOSE_DEV) $(TOOLS) run --rm $(SERVICE)-tests --tb=no
+endif
 
-test-parser:              ## parser-тесты
-	$(COMPOSE_DEV) $(TOOLS) run --rm parser-tests
-
-test-file-backend:        ## один файл: make test-file-backend F=tests/test_concurrency.py
-	$(COMPOSE_DEV) $(TOOLS) run --rm backend-tests $(F)
-
-test-file-parser:         ## один файл: make test-file-parser F=tests/test_sync.py
-	$(COMPOSE_DEV) $(TOOLS) run --rm parser-tests $(F)
-
-test-live:                ## live-тесты парсера против AIESEC (нужен AIESEC_TOKEN)
+test-live:                ## live-тесты парсера против AIESEC
 	$(COMPOSE_DEV) $(TOOLS) run --rm -e AIESEC_TOKEN=$${AIESEC_TOKEN:?нужен AIESEC_TOKEN} parser-tests -m live -o addopts=""
 
-test-collect-backend:
-	$(COMPOSE_DEV) $(TOOLS) run --rm backend-tests --collect-only -o addopts=""
+# ==========================================================
+#  PER-SERVICE АЛИАСЫ (тонкие, для tab-completion)
+#  Генерируются из $(SERVICES) — добавь сервис в SERVICES,
+#  получишь up-<svc>, rebuild-<svc>, shell-<svc>, test-<svc> и т.д.
+# ==========================================================
+define per_service_aliases
+up-$(1):            ; $$(MAKE) up            SERVICE=$(1)
+rebuild-$(1):       ; $$(MAKE) rebuild       SERVICE=$(1)
+shell-$(1):         ; $$(MAKE) shell         SERVICE=$(1)
+test-$(1):          ; $$(MAKE) test          SERVICE=$(1)
+test-cov-$(1):      ; $$(MAKE) test-cov      SERVICE=$(1)
+test-collect-$(1):  ; $$(MAKE) test-collect  SERVICE=$(1)
+test-file-$(1):     ; $$(MAKE) test-file     SERVICE=$(1) F=$$(F)
+endef
 
-test-collect-parser:
-	$(COMPOSE_DEV) $(TOOLS) run --rm parser-tests --collect-only -o addopts=""
+# migrate применим только к сервисам с alembic (backend, parser)
+$(eval $(call per_service_aliases,backend))
+$(eval $(call per_service_aliases,parser))
+$(eval $(call per_service_aliases,matcher))
+migrate-backend:    ; $(MAKE) migrate SERVICE=backend
+migrate-parser:     ; $(MAKE) migrate SERVICE=parser
 
-test-cov: test-cov-backend test-cov-parser
-
-test-cov-backend:         ## backend: порог 80% (ТЗ-B)
-	$(COMPOSE_DEV) $(TOOLS) run --rm backend-tests --cov-fail-under=80 --tb=no
-
-test-cov-parser:          ## parser: порог 70%
-	$(COMPOSE_DEV) $(TOOLS) run --rm parser-tests --cov-fail-under=70 --tb=no
-
-# -------------------- openapi --------------------
+# ==========================================================
+#  OPENAPI
+# ==========================================================
 openapi-snapshot:         ## пересоздать backend/openapi/backend.v1.json
 	rm -f backend/openapi/backend.v1.json
 	$(COMPOSE_DEV) $(TOOLS) run --rm backend-tests tests/test_openapi.py -o addopts=""
 
-# -------------------- web (локально) --------------------
-web-install:
-	cd web && npm install
-
-web-dev:
-	cd web && npm run dev
-
-web-build:
-	cd web && npm run build
-
-web-lint:
-	cd web && npm run lint
-
-web-test:
-	cd web && npm run test
+# ==========================================================
+#  WEB (локально, без docker)
+# ==========================================================
+web-install:  ; cd web && npm install
+web-dev:      ; cd web && npm run dev
+web-build:    ; cd web && npm run build
+web-lint:     ; cd web && npm run lint
+web-test:     ; cd web && npm run test -- --run
+web-coverage: ; cd web && npm run coverage

@@ -18,11 +18,14 @@ aiesec_match
 │  ├─ alembic.ini
 │  ├─ app
 │  │  ├─ __init__.py
+│  │  ├─ age.py
 │  │  ├─ api
 │  │  │  ├─ __init__.py
+│  │  │  ├─ analytics.py
 │  │  │  ├─ auth.py
 │  │  │  ├─ feedback.py
 │  │  │  ├─ health.py
+│  │  │  ├─ history.py
 │  │  │  ├─ me.py
 │  │  │  ├─ meta.py
 │  │  │  ├─ notifications.py
@@ -53,6 +56,8 @@ aiesec_match
 │  │  └─ versions
 │  │     ├─ 0001_core.py
 │  │     ├─ 0002_auth.py
+│  │     ├─ 0003_auth.py
+│  │     ├─ 0004_feedback_unique.py
 │  │     └─ __pycache__
 │  │        ├─ 0001_core.cpython-312.pyc
 │  │        └─ 71ae476ee49e_.cpython-312.pyc
@@ -207,6 +212,8 @@ aiesec_match
    │  │  ├─ account
    │  │  │  ├─ DeleteAccountDialog.tsx
    │  │  │  └─ LinkTelegramPanel.tsx
+   │  │  ├─ auth
+   │  │  │  └─ AuthContext.tsx
    │  │  ├─ dashboard
    │  │  │  └─ useDashboardPreferences.ts
    │  │  ├─ feedback
@@ -214,6 +221,7 @@ aiesec_match
    │  │  ├─ questionnaire
    │  │  │  ├─ FieldRenderer.tsx
    │  │  │  ├─ FormRenderer.tsx
+   │  │  │  ├─ ProgrammeCards.tsx
    │  │  │  ├─ useFormState.ts
    │  │  │  └─ validation.ts
    │  │  ├─ recommendations
@@ -234,6 +242,7 @@ aiesec_match
    │  │  ├─ opportunity
    │  │  │  └─ OpportunityPage.tsx
    │  │  ├─ profile
+   │  │  │  ├─ FavoritesPage.tsx
    │  │  │  ├─ ProfileEditPage.tsx
    │  │  │  ├─ ProfilePage.tsx
    │  │  │  ├─ ProfileStatisticsPage.tsx
@@ -258,15 +267,18 @@ aiesec_match
    │  │  │  ├─ useMediaQuery.ts
    │  │  │  └─ useOnline.ts
    │  │  ├─ lib
+   │  │  │  ├─ age.ts
    │  │  │  ├─ condition.ts
    │  │  │  ├─ date.ts
    │  │  │  ├─ errors.ts
    │  │  │  ├─ format.ts
-   │  │  │  └─ get.ts
+   │  │  │  ├─ get.ts
+   │  │  │  └─ password.ts
    │  │  ├─ styles
    │  │  │  ├─ global.css
    │  │  │  └─ tokens.css
    │  │  └─ ui
+   │  │     ├─ AuthCard.tsx
    │  │     ├─ Avatar.tsx
    │  │     ├─ Badge.tsx
    │  │     ├─ BarChart.tsx
@@ -286,6 +298,7 @@ aiesec_match
    │  │     ├─ LineChart.tsx
    │  │     ├─ NavigationBar.tsx
    │  │     ├─ NumberStepper.tsx
+   │  │     ├─ PasswordField.tsx
    │  │     ├─ Progress.tsx
    │  │     ├─ Segmented.tsx
    │  │     ├─ Select.tsx
@@ -299,6 +312,7 @@ aiesec_match
    │  │     └─ index.ts
    │  └─ widgets
    │     ├─ DashboardCustomizer.tsx
+   │     ├─ GuestBanner.tsx
    │     ├─ MainNavigation.tsx
    │     ├─ OnboardingWizard.tsx
    │     ├─ ProfileCompleteness.tsx

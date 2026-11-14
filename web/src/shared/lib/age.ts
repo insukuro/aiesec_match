@@ -15,9 +15,11 @@ export function parseIsoDate(iso: string): Date | null {
 }
 
 export function toIso(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
-
 /** Последняя допустимая дата рождения: чтобы сегодня было ≥ 16 лет. */
 export function maxBirthDate(today = new Date()): string {
   const d = new Date(today);
