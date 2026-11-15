@@ -17,13 +17,26 @@ def load_dictionaries() -> dict[str, list[dict[str, Any]]]:
         for path in sorted(DATA_DIR.glob(f"{FILE_PREFIX}*.json"))
     }
 
-from functools import lru_cache
-from app.config import get_settings
-from app.repo.catalog_reader import DbCatalogReader, FakeCatalogReader
+from fastapi import HTTPException
 
-@lru_cache
-def get_catalog_reader():
+from app.config import get_settings
+from app.repo.catalog_reader import CachedCatalogReader, DbCatalogReader, FakeCatalogReader
+
+
+@lru_cache(maxsize=1)
+def _build_reader():
     s = get_settings()
     if s.catalog_source == "db":
-        return DbCatalogReader(s.database_url)
+        reader = DbCatalogReader(s.database_url)
+        if s.catalog_cache_ttl_s > 0:
+            return CachedCatalogReader(reader, s.catalog_cache_ttl_s)
+        return reader
     return FakeCatalogReader(s.fake_catalog_path)
+
+
+def get_catalog_reader():
+    """Источник каталога. Ошибка настройки (нет адреса БД, нет файла) это 503, а не 500 (BUG-M-09)."""
+    try:
+        return _build_reader()
+    except Exception as e:
+        raise HTTPException(503, detail={"type": "catalog-unavailable"}) from e

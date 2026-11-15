@@ -1,20 +1,45 @@
-from typing import Any, Dict, List, Literal, Optional
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Dict, List, Literal, Optional
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 ProgrammeKind = Literal["talent", "teacher", "volunteer"]
+
+class Study(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    status: Optional[str] = None
+    level: Optional[str] = None
+    field: Optional[str] = None
+
+
+class Duration(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    min_weeks: Optional[int] = Field(None, ge=0)
+    max_weeks: Optional[int] = Field(None, ge=0)
+
+    @model_validator(mode="after")
+    def _min_not_above_max(self):
+        if self.min_weeks is not None and self.max_weeks is not None and self.min_weeks > self.max_weeks:
+            raise ValueError("min_weeks must not be greater than max_weeks")
+        return self
+
+
+class Financial(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    willing_to_pay: Optional[bool] = None
+    max_budget_eur: Optional[float] = Field(None, ge=0)
+
 
 class ProfileSnapshot(BaseModel):
     model_config = ConfigDict(extra="allow")   # новые поля бэка не ломают нас
     programmes: List[ProgrammeKind] = []
     english_level: Optional[Literal["A1","A2","B1","B2","C1","C2"]] = None
-    study: Optional[Dict[str, Any]] = None
+    study: Optional[Study] = None
     work_experience: Optional[str] = None
     spheres: List[str] = []
     activities: List[str] = []
     desired_countries: List[str] = []
-    duration: Optional[Dict[str, int]] = None
+    duration: Optional[Duration] = None
     start_window: Optional[str] = None
-    financial: Optional[Dict[str, Any]] = None
+    financial: Optional[Financial] = None
     nationality: Optional[str] = None
     preferred_lc_ids: List[int] = []
     other_languages: List[str] = []

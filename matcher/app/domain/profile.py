@@ -52,8 +52,8 @@ def _sphere(name: str, tax: dict) -> dict:
 
 def build_profile(s: ProfileSnapshot) -> Profile:
     tax = load_taxonomy()
-    study = s.study or {}
-    names = list(s.spheres) + list(s.activities) + ([study["field"]] if study.get("field") else [])
+    study, dur, fin = s.study, s.duration, s.financial
+    names = list(s.spheres) + list(s.activities) + ([study.field] if study and study.field else [])
 
     bg, sk = set(), set()
     for name in names:
@@ -61,20 +61,22 @@ def build_profile(s: ProfileSnapshot) -> Profile:
         bg.update(m.get("backgrounds", []))
         sk.update(m.get("skills", []))
 
-    level = study.get("level")
-    dur = s.duration or {}
-    fin = s.financial or {}
+    # анкета присылает study.status, старые клиенты могли присылать study.level (BUG-M-10)
+    level = (study.level or study.status) if study else None
+    # коды языков и стран сравниваем без учёта регистра (BUG-M-07)
+    langs = {c.lower() for c in s.other_languages}
+    nationality = s.nationality.upper() if s.nationality else None
     return Profile(
         programmes=list(s.programmes),
         background_ids=bg,
         skill_ids=sk,
-        language_ids={tax["languages"][c] for c in s.other_languages if c in tax["languages"]},
+        language_ids={tax["languages"][c] for c in langs if c in tax["languages"]},
         english_level=s.english_level,
         study_level_ids={tax["study_levels"][level]} if level in tax["study_levels"] else set(),
-        nationality_id=tax["nationalities"].get(s.nationality) if s.nationality else None,
-        min_weeks=dur.get("min_weeks"),
-        max_weeks=dur.get("max_weeks"),
-        max_budget_eur=fin.get("max_budget_eur"),
-        willing_to_pay=fin.get("willing_to_pay"),
+        nationality_id=tax["nationalities"].get(nationality) if nationality else None,
+        min_weeks=dur.min_weeks if dur else None,
+        max_weeks=dur.max_weeks if dur else None,
+        max_budget_eur=fin.max_budget_eur if fin else None,
+        willing_to_pay=fin.willing_to_pay if fin else None,
         preferred_lc_ids=set(s.preferred_lc_ids),
     )

@@ -53,7 +53,8 @@ def cost_score(o: Opportunity, p: Profile) -> float:
 def freshness_score(o: Opportunity, today: date) -> float:
     if o.date_opened is None:
         return NEUTRAL
-    return math.exp(-(today - o.date_opened).days / 90)
+    days = max(0, (today - o.date_opened).days)      # дата из будущего считается как «сегодня» (BUG-M-03)
+    return math.exp(-days / 90)
 
 
 def chance_scores(opps: List[Opportunity], a: float = 10.0) -> Dict[int, float]:

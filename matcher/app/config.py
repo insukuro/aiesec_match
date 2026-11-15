@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     catalog_source: str = "fake"          # fake | db
     fake_catalog_path: str = "app/data/fake_catalog.json"
     database_url: str = ""                # заполнится в Docker
+    catalog_cache_ttl_s: float = 0        # 0 = кэш выключен; в проде 60
     label_excellent: float = 0.75
     label_good: float = 0.55
 
