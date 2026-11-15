@@ -2,7 +2,7 @@ name: aiesec-match
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: aiesec-postgres
     restart: unless-stopped
     environment:
@@ -21,7 +21,7 @@ services:
     networks: [backend]
 
   db-init:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: aiesec-db-init
     restart: "no"
     depends_on:

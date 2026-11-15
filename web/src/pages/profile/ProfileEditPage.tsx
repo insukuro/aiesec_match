@@ -6,7 +6,6 @@ import { fetchers, qk } from "../../shared/api/queries";
 import { FormRenderer } from "../../features/questionnaire/FormRenderer";
 import { Button } from "../../shared/ui/Button";
 import { Skeleton } from "../../shared/ui/Skeleton";
-import { ErrorBanner } from "../../shared/ui/ErrorBanner";
 import { useToast } from "../../shared/ui/Toast";
 import { ROUTES } from "../../app/routes";
 import { ApiError } from "../../shared/api/client";
