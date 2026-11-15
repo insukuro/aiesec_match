@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import hmac
 import json
@@ -6,10 +7,10 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qsl
 
+import bcrypt
 import jwt
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,22 +20,36 @@ from .errors import ForbiddenGuest, Unauthorized
 from .models import DeviceSecret, Identity, PasswordCredential, User
 
 bearer = HTTPBearer(auto_error=False)
-pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def _now() -> datetime:
     return datetime.now(tz=timezone.utc)
 
 
-def hash_password(raw: str) -> str:
-    return pwd_ctx.hash(raw)
+# Ограничиваем параллелизм bcrypt, чтобы медленные хэши не вытесняли
+# остальную работу из дефолтного ThreadPoolExecutor.
+_bcrypt_sem = asyncio.Semaphore(8)
 
 
-def verify_password(raw: str, hashed: str) -> bool:
+def _hash_password_sync(raw: str) -> str:
+    return bcrypt.hashpw(raw.encode(), bcrypt.gensalt()).decode()
+
+
+def _verify_password_sync(raw: str, hashed: str) -> bool:
     try:
-        return pwd_ctx.verify(raw, hashed)
+        return bcrypt.checkpw(raw.encode(), hashed.encode())
     except ValueError:
         return False
+
+
+async def hash_password(raw: str) -> str:
+    async with _bcrypt_sem:
+        return await asyncio.to_thread(_hash_password_sync, raw)
+
+
+async def verify_password(raw: str, hashed: str) -> bool:
+    async with _bcrypt_sem:
+        return await asyncio.to_thread(_verify_password_sync, raw, hashed)
 
 
 def issue_token(user_id: uuid.UUID, ttl: int, aud: str = "client") -> tuple[str, int]:
@@ -110,12 +125,17 @@ async def register_with_password(
     )).scalar_one_or_none()
     if exists is not None:
         raise ValueError("email_taken")
+
+    # Считаем хэш ДО открытия транзакции, чтобы не держать соединение из пула
+    # всё время, пока работает bcrypt.
+    password_hash = await hash_password(password)
+
     user = User(is_anonymous=False)
     session.add(user)
     await session.flush()
     session.add(Identity(user_id=user.user_id, provider="password", external_id=email_norm))
     session.add(PasswordCredential(
-        user_id=user.user_id, email=email_norm, password_hash=hash_password(password),
+        user_id=user.user_id, email=email_norm, password_hash=password_hash,
     ))
     await session.commit()
     return user
@@ -130,7 +150,7 @@ async def login_with_password(
     )).scalar_one_or_none()
     if cred is None:
         return None
-    if not verify_password(password, cred.password_hash):
+    if not await verify_password(password, cred.password_hash):
         return None
     user = await session.get(User, cred.user_id)
     if user is None or user.deleted_at is not None:

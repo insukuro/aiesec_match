@@ -191,3 +191,6 @@ web-build:    ; cd web && npm run build
 web-lint:     ; cd web && npm run lint
 web-test:     ; cd web && npm run test -- --run
 web-coverage: ; cd web && npm run coverage
+
+
+include loadtest/Makefile.loadtest

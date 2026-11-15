@@ -8,3 +8,6 @@
 **/node_modules
 dump_web_20261113_183852.txt
 dump_20261113_183856.txt
+loadtest/data/tokens.json
+loadtest/results/*.json
+loadtest/results/*.html

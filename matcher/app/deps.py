@@ -21,9 +21,20 @@ def load_dictionaries() -> dict[str, list[dict[str, Any]]]:
     }
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=4)
+def _build_reader(source: str, database_url: str, fake_path: str,
+                  pool_size: int, max_overflow: int):
+    if source == "db":
+        return DbCatalogReader(
+            database_url, pool_size=pool_size, max_overflow=max_overflow,
+        )
+    return FakeCatalogReader(fake_path)
+
+
 def get_catalog_reader():
+    """Зависимость FastAPI: reader кэшируется по ключу настроек."""
     s = get_settings()
-    if s.catalog_source == "db":
-        return DbCatalogReader(s.database_url)
-    return FakeCatalogReader(s.fake_catalog_path)
+    return _build_reader(
+        s.catalog_source, s.database_url, s.fake_catalog_path,
+        s.db_pool_size, s.db_max_overflow,
+    )

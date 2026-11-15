@@ -1,0 +1,1015 @@
+===== matcher/app/__init__.py =====
+
+===== matcher/app/config.py =====
+from __future__ import annotations
+
+from functools import lru_cache
+from typing import Literal
+
+from pydantic import Field, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="MATCHER_", extra="ignore")
+
+    min_english: dict[str, str] = Field(
+        default_factory=lambda: {"talent": "B1", "teacher": "B2", "volunteer": "A2"},
+    )
+    catalog_source: Literal["db", "fake"] = "db"
+    fake_catalog_path: str = "app/data/fake_catalog.json"
+    database_url: str = ""
+    label_excellent: float = 0.75
+    label_good: float = 0.55
+
+    # Пул SQLAlchemy должен быть согласован с anyio-лимитером (см. main.py).
+    db_pool_size: int = 20
+    db_max_overflow: int = 10
+
+    # Сколько sync-эндпоинтов FastAPI может выполнять одновременно.
+    # Дефолт anyio — 40; для CPU-bound ranking этого часто мало.
+    thread_limiter_tokens: int = 80
+
+    @model_validator(mode="after")
+    def _check_db_url(self) -> "Settings":
+        if self.catalog_source == "db" and not self.database_url:
+            raise ValueError(
+                "MATCHER_DATABASE_URL must be set when MATCHER_CATALOG_SOURCE='db'"
+            )
+        return self
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+===== matcher/app/deps.py =====
+from __future__ import annotations
+
+import json
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
+
+from app.config import get_settings
+from app.repo.catalog_reader import DbCatalogReader, FakeCatalogReader
+
+DATA_DIR = Path(__file__).parent / "data"
+FILE_PREFIX = "_lists_"
+
+
+@lru_cache(maxsize=1)
+def load_dictionaries() -> dict[str, list[dict[str, Any]]]:
+    """Читает справочники из app/data один раз; дальше отдаёт их из памяти."""
+    return {
+        path.stem.removeprefix(FILE_PREFIX): json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted(DATA_DIR.glob(f"{FILE_PREFIX}*.json"))
+    }
+
+
+@lru_cache(maxsize=4)
+def _build_reader(source: str, database_url: str, fake_path: str,
+                  pool_size: int, max_overflow: int):
+    if source == "db":
+        return DbCatalogReader(
+            database_url, pool_size=pool_size, max_overflow=max_overflow,
+        )
+    return FakeCatalogReader(fake_path)
+
+
+def get_catalog_reader():
+    """Зависимость FastAPI: reader кэшируется по ключу настроек."""
+    s = get_settings()
+    return _build_reader(
+        s.catalog_source, s.database_url, s.fake_catalog_path,
+        s.db_pool_size, s.db_max_overflow,
+    )
+===== matcher/app/domain/__init__.py =====
+
+===== matcher/app/domain/features.py =====
+import math
+from bisect import bisect_left
+from datetime import date
+from typing import Dict, List, Set
+
+from app.domain.models import Opportunity
+from app.domain.profile import Profile
+
+OPTION_WT = {"required": 1.0, "preferred": 0.5}
+NEUTRAL = 0.5          # «не знаем» = середина, ни плюс ни минус
+
+
+def coverage(reqs: Dict[int, str], have: Set[int]) -> float:
+    """Доля требований (с весом required/preferred), которую закрывает кандидат."""
+    if not reqs:
+        return NEUTRAL
+    total = sum(OPTION_WT.get(opt, 1.0) for opt in reqs.values())
+    got = sum(OPTION_WT.get(opt, 1.0) for cid, opt in reqs.items() if cid in have)
+    return got / total
+
+
+def language_score(o: Opportunity, langs: Set[int]) -> float:
+    preferred = {cid for cid, opt in o.languages.items() if opt == "preferred"}
+    if not preferred:
+        return NEUTRAL
+    return len(preferred & langs) / len(preferred)
+
+
+def city_score(o: Opportunity, p: Profile) -> float:
+    if not p.preferred_lc_ids:
+        return NEUTRAL
+    return 1.0 if o.lc_id in p.preferred_lc_ids else 0.0
+
+
+def duration_score(o: Opportunity, p: Profile) -> float:
+    if o.duration_weeks is None or (p.min_weeks is None and p.max_weeks is None):
+        return NEUTRAL
+    lo = p.min_weeks if p.min_weeks is not None else 0
+    hi = p.max_weeks if p.max_weeks is not None else 10**6
+    d = o.duration_weeks
+    dist = lo - d if d < lo else d - hi if d > hi else 0
+    return max(0.0, 1 - dist / 8)          # спад до 0 на расстоянии 8 недель
+
+
+def cost_score(o: Opportunity, p: Profile) -> float:
+    if o.cost_total == 0:
+        return 1.0
+    if o.cost_total is None or p.max_budget_eur is None or o.cost_currency not in (None, "EUR"):
+        return NEUTRAL
+    return 1.0 if o.cost_total <= p.max_budget_eur else 0.0
+
+
+def freshness_score(o: Opportunity, today: date) -> float:
+    if o.date_opened is None:
+        return NEUTRAL
+    return math.exp(-(today - o.date_opened).days / 90)
+
+
+def chance_scores(opps: List[Opportunity], a: float = 10.0) -> Dict[int, float]:
+    """Шанс на принятие: сглаженная доля принятых × доля свободных мест, затем процентиль."""
+    if not opps:
+        return {}
+    apps = sum(o.applicants_count for o in opps)
+    p0 = sum(o.accepted_count for o in opps) / apps if apps else 0.0
+    raw = {}
+    for o in opps:
+        rate = (o.accepted_count + a * p0) / (o.applicants_count + a)
+        free = o.available_openings / o.openings if o.openings else 1.0
+        raw[o.opportunity_id] = rate * free
+    values = sorted(raw.values())
+    if values[0] == values[-1]:
+        return {oid: NEUTRAL for oid in raw}
+    n = len(values)
+    return {oid: bisect_left(values, v) / (n - 1) for oid, v in raw.items()}
+
+
+def compute_features(o: Opportunity, p: Profile, langs: Set[int],
+                     chance: float, today: date) -> Dict[str, float]:
+    return {
+        "background": coverage(o.backgrounds, p.background_ids),
+        "skill": coverage(o.skills, p.skill_ids),
+        "language": language_score(o, langs),
+        "city": city_score(o, p),
+        "duration": duration_score(o, p),
+        "cost": cost_score(o, p),
+        "chance": chance,
+        "freshness": freshness_score(o, today),
+    }
+===== matcher/app/domain/filters.py =====
+from datetime import date
+from typing import List, Optional
+
+from app.domain.models import Opportunity
+from app.domain.profile import Profile
+from app.schemas import MatchFilters
+
+
+def hard_filter(opps: List[Opportunity], p: Profile, filters: MatchFilters,
+                min_english: str, today: Optional[date] = None) -> List[Opportunity]:
+    today = today or date.today()
+    langs = p.languages_for(min_english)
+    out = []
+    for o in opps:
+        # открыта и есть места
+        if not o.is_open or o.available_openings <= 0:
+            continue
+        # срок подачи не прошёл
+        if o.applications_close_date and o.applications_close_date < today:
+            continue
+        # все ОБЯЗАТЕЛЬНЫЕ языки вакансии есть у кандидата
+        required = {cid for cid, opt in o.languages.items() if opt == "required"}
+        if not required <= langs:
+            continue
+        # гражданство (если кандидат его не указал, не режем)
+        if o.nationalities and p.nationality_id is not None and p.nationality_id not in o.nationalities:
+            continue
+        # уровень учёбы (если обе стороны его знают)
+        if o.study_levels and p.study_level_ids and not (o.study_levels & p.study_level_ids):
+            continue
+        # бюджет: платная вакансия и кандидат не готов платить или не укладывается
+        if o.cost_total and o.cost_total > 0:
+            if p.willing_to_pay is False:
+                continue
+            if (p.max_budget_eur is not None and o.cost_currency in (None, "EUR")
+                    and o.cost_total > p.max_budget_eur):
+                continue
+        # фильтры из запроса
+        if filters.country_codes and o.country_code not in filters.country_codes:
+            continue
+        if o.opportunity_id in filters.exclude_opportunity_ids:
+            continue
+        out.append(o)
+    return out
+===== matcher/app/domain/models.py =====
+from dataclasses import dataclass, field
+from datetime import date
+from typing import Dict, Optional, Set
+
+@dataclass
+class Opportunity:
+    opportunity_id: int
+    programme_kind: str                      # talent | teacher | volunteer
+    title: str = ""
+    family_key: Optional[str] = None
+    country_code: Optional[str] = None
+    lc_id: Optional[int] = None
+    is_open: bool = True
+    openings: int = 0
+    available_openings: int = 1
+    applicants_count: int = 0
+    accepted_count: int = 0
+    date_opened: Optional[date] = None
+    applications_close_date: Optional[date] = None
+    duration_weeks: Optional[int] = None
+    cost_total: Optional[float] = None
+    cost_currency: Optional[str] = None
+    # требования: constant_id -> option ("required" | "preferred")
+    backgrounds: Dict[int, str] = field(default_factory=dict)
+    skills: Dict[int, str] = field(default_factory=dict)
+    languages: Dict[int, str] = field(default_factory=dict)
+    study_levels: Set[int] = field(default_factory=set)
+    nationalities: Set[int] = field(default_factory=set)
+===== matcher/app/domain/profile.py =====
+from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
+from typing import List, Optional, Set
+
+import yaml
+
+from app.schemas import ProfileSnapshot
+
+CEFR = ["A1", "A2", "B1", "B2", "C1", "C2"]
+ENGLISH_ID = 10018
+
+
+@lru_cache
+def load_taxonomy() -> dict:
+    with open(Path(__file__).parent / "taxonomy.yaml", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+@dataclass
+class Profile:
+    programmes: List[str]
+    background_ids: Set[int]
+    skill_ids: Set[int]
+    language_ids: Set[int]            # все языки, кроме английского
+    english_level: Optional[str]
+    study_level_ids: Set[int]
+    nationality_id: Optional[int]
+    min_weeks: Optional[int]
+    max_weeks: Optional[int]
+    max_budget_eur: Optional[float]
+    willing_to_pay: Optional[bool]
+    preferred_lc_ids: Set[int]
+
+    def languages_for(self, min_english: str) -> Set[int]:
+        """Английский засчитываем, только если уровень не ниже порога программы."""
+        ids = set(self.language_ids)
+        if self.english_level and CEFR.index(self.english_level) >= CEFR.index(min_english):
+            ids.add(ENGLISH_ID)
+        return ids
+
+
+def _sphere(name: str, tax: dict) -> dict:
+    spheres = tax["spheres"]
+    if name in spheres:
+        return spheres[name]
+    for key, val in spheres.items():          # teaching_* ловит teaching_kids и т.п.
+        if key.endswith("*") and name.startswith(key[:-1]):
+            return val
+    return {}
+
+
+def build_profile(s: ProfileSnapshot) -> Profile:
+    tax = load_taxonomy()
+    study = s.study or {}
+    names = list(s.spheres) + list(s.activities) + ([study["field"]] if study.get("field") else [])
+
+    bg, sk = set(), set()
+    for name in names:
+        m = _sphere(name, tax)
+        bg.update(m.get("backgrounds", []))
+        sk.update(m.get("skills", []))
+
+    level = study.get("level")
+    dur = s.duration or {}
+    fin = s.financial or {}
+    return Profile(
+        programmes=list(s.programmes),
+        background_ids=bg,
+        skill_ids=sk,
+        language_ids={tax["languages"][c] for c in s.other_languages if c in tax["languages"]},
+        english_level=s.english_level,
+        study_level_ids={tax["study_levels"][level]} if level in tax["study_levels"] else set(),
+        nationality_id=tax["nationalities"].get(s.nationality) if s.nationality else None,
+        min_weeks=dur.get("min_weeks"),
+        max_weeks=dur.get("max_weeks"),
+        max_budget_eur=fin.get("max_budget_eur"),
+        willing_to_pay=fin.get("willing_to_pay"),
+        preferred_lc_ids=set(s.preferred_lc_ids),
+    )
+===== matcher/app/domain/scoring.py =====
+from datetime import date
+from functools import lru_cache
+from pathlib import Path
+from typing import Dict, List, Optional, Set
+
+import yaml
+
+from app.domain.features import chance_scores, compute_features
+from app.domain.models import Opportunity
+from app.domain.profile import Profile
+from app.schemas import MatchItem, ProgrammeGroup, Reason
+
+REASONS = {
+    "background": ("background_match", "Ваше образование подходит под требования"),
+    "skill": ("skill_match", "Ваши навыки совпадают с нужными"),
+    "language": ("language_preferred", "Вы знаете желательные языки"),
+    "city": ("city_pref", "Город из ваших предпочтений"),
+    "duration": ("duration_fit", "Длительность в вашем диапазоне"),
+    "cost": ("cost_fit", "Укладывается в бюджет"),
+    "chance": ("chance_high", "Хорошие шансы на принятие"),
+    "freshness": ("fresh", "Вакансия открылась недавно"),
+}
+
+
+@lru_cache
+def load_weights() -> dict:
+    with open(Path(__file__).resolve().parent.parent / "weights.yaml", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+def label(score: float, excellent: float, good: float) -> str:
+    return "excellent" if score >= excellent else "good" if score >= good else "fair"
+
+
+def make_reasons(f: Dict[str, float], w: Dict[str, float]) -> List[Reason]:
+    pos = sorted(((w[k] * v, k) for k, v in f.items() if w.get(k, 0) > 0 and v >= 0.7), reverse=True)
+    out = [Reason(code=REASONS[k][0], polarity="positive", weight=round(c, 3), text=REASONS[k][1])
+           for c, k in pos[:3]]
+    if w.get("chance", 0) > 0 and f["chance"] < 0.3:
+        out.append(Reason(code="chance_low", polarity="negative",
+                          weight=round(w["chance"] * (1 - f["chance"]), 3),
+                          text="Высокая конкуренция на эту вакансию"))
+    return out
+
+
+def rank_programme(opps: List[Opportunity], p: Profile, kind: str, langs: Set[int],
+                   limit: int, explain: bool, excellent: float, good: float,
+                   today: Optional[date] = None) -> ProgrammeGroup:
+    today = today or date.today()
+    w = load_weights()[kind]
+    chance = chance_scores(opps)
+
+    scored = []
+    for o in opps:
+        f = compute_features(o, p, langs, chance[o.opportunity_id], today)
+        u = sum(w.get(k, 0) * v for k, v in f.items())
+        scored.append((u, o, f))
+    scored.sort(key=lambda t: (-t[0], t[1].opportunity_id))   # детерминированный порядок
+
+    # схлопывание семей: от каждой семьи остаётся лучшая вакансия
+    best, siblings = [], {}
+    for u, o, f in scored:
+        key = o.family_key or f"id:{o.opportunity_id}"
+        if key in siblings:
+            siblings[key] += 1
+            continue
+        siblings[key] = 0
+        best.append((u, o, f, key))
+
+    items = [
+        MatchItem(
+            opportunity_id=o.opportunity_id, rank=rank, score=round(u, 4),
+            label=label(u, excellent, good), family_key=o.family_key,
+            siblings_count=siblings[key],
+            reasons=make_reasons(f, w) if explain else [],
+            breakdown={k: round(v, 4) for k, v in f.items()},
+        )
+        for rank, (u, o, f, key) in enumerate(best[:limit], start=1)
+    ]
+    return ProgrammeGroup(programme_kind=kind, total_candidates=len(opps), items=items)
+===== matcher/app/domain/taxonomy.yaml =====
+spheres:              # сфера или активность -> constant_id
+  marketing:  {backgrounds: [10253], skills: []}
+  sales:      {backgrounds: [21677], skills: [10161]}   # 21677 из ТЗ, проверить в backgrounds.json
+  teaching_*: {backgrounds: [10241], skills: [10162]}   # * значит любое teaching_...
+study_levels:
+  school: 10782
+  bachelor: 10785
+languages:            # other_languages -> constant_id
+  en: 10018
+  ru: 10043
+  es: 10048
+  pt: 10041
+nationalities:        # код страны -> constant_id
+  RU: 10463
+  AZ: 10353
+===== matcher/app/main.py =====
+from __future__ import annotations
+
+import logging
+import os
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
+
+import anyio.to_thread
+from fastapi import FastAPI
+
+from .config import get_settings
+from .routers import dictionaries, health, match
+
+log = logging.getLogger("matcher")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    s = get_settings()
+
+    # anyio-лимитер управляет числом ОДНОВРЕМЕННЫХ sync-эндпоинтов
+    # (в том числе /v1/match). Это ровно тот параметр, который влияет
+    # на sync-обработчики FastAPI. asyncio.set_default_executor на них
+    # не действует — не путать.
+    limiter = anyio.to_thread.current_default_thread_limiter()
+    limiter.total_tokens = s.thread_limiter_tokens
+
+    # Отдельный executor для asyncio.to_thread (если где-то используется).
+    # Размер = ядра * 2, чтобы CPU-bound задачи не дрались за GIL.
+    workers = max(2, min(32, (os.cpu_count() or 4) * 2))
+    executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="cpu")
+    import asyncio
+    asyncio.get_running_loop().set_default_executor(executor)
+
+    log.info(
+        "matcher started: thread_limiter=%s cpu_workers=%s catalog_source=%s",
+        s.thread_limiter_tokens, workers, s.catalog_source,
+    )
+    try:
+        yield
+    finally:
+        executor.shutdown(wait=True)
+        log.info("matcher stopped")
+
+
+app = FastAPI(lifespan=lifespan, title="AIESEC matcher", version="0.1.0")
+app.include_router(health.router)
+app.include_router(match.router)
+app.include_router(dictionaries.router)
+===== matcher/app/repo/__init__.py =====
+
+===== matcher/app/repo/catalog_reader.py =====
+from __future__ import annotations
+
+import json
+import logging
+from datetime import date
+from pathlib import Path
+from typing import Dict, List, Optional
+
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine
+
+from app.domain.models import Opportunity
+
+log = logging.getLogger("matcher.catalog")
+
+KIND_TO_FIELD = {"background": "backgrounds", "skill": "skills", "language": "languages"}
+
+
+def _d(v) -> Optional[date]:
+    if v is None or isinstance(v, date):
+        return v
+    return date.fromisoformat(str(v)[:10])
+
+
+def build_opportunity(row: dict, reqs: List[dict]) -> Opportunity:
+    """Строка вью opportunity_v1 + её строки из opportunity_requirement_v1 -> Opportunity."""
+    opp = Opportunity(
+        opportunity_id=int(row["opportunity_id"]),
+        programme_kind=row["programme_kind"],
+        title=row.get("title") or "",
+        family_key=row.get("family_key"),
+        country_code=row.get("country_code"),
+        lc_id=row.get("lc_id"),
+        is_open=bool(row.get("is_open", True)),
+        openings=row.get("openings") or 0,
+        available_openings=row.get("available_openings") or 0,
+        applicants_count=row.get("applicants_count") or 0,
+        accepted_count=row.get("accepted_count") or 0,
+        date_opened=_d(row.get("date_opened")),
+        applications_close_date=_d(row.get("applications_close_date")),
+        duration_weeks=row.get("duration_weeks"),
+        cost_total=float(row["cost_total"]) if row.get("cost_total") is not None else None,
+        cost_currency=row.get("cost_currency"),
+    )
+    for r in reqs:
+        cid = int(r["constant_id"])
+        kind = r["kind"]
+        if kind in KIND_TO_FIELD:
+            getattr(opp, KIND_TO_FIELD[kind])[cid] = r.get("option") or "required"
+        elif kind == "study_level":
+            opp.study_levels.add(cid)
+        elif kind == "nationality":
+            opp.nationalities.add(cid)
+    return opp
+
+
+class FakeCatalogReader:
+    """Вакансии из JSON-файла: для разработки и тестов."""
+
+    def __init__(self, path: str):
+        resolved = Path(path)
+        if not resolved.is_absolute():
+            # app/repo/catalog_reader.py -> parents[2] == корень проекта
+            resolved = Path(__file__).resolve().parents[2] / path
+        with resolved.open(encoding="utf-8") as f:
+            data = json.load(f)
+        self._all = [build_opportunity(o, o.get("requirements", [])) for o in data]
+
+    def list_open(self, programme_kind: str) -> List[Opportunity]:
+        return [
+            o for o in self._all
+            if o.programme_kind == programme_kind and o.is_open and o.available_openings > 0
+        ]
+
+
+class DbCatalogReader:
+    """Чтение из вью catalog.* под ролью только для SELECT."""
+
+    def __init__(
+        self,
+        database_url: str,
+        *,
+        pool_size: int = 20,
+        max_overflow: int = 10,
+    ):
+        # Драйвер должен совпадать с тем, что установлен в образе (psycopg[binary]).
+        # SQLAlchemy 2.x по умолчанию выбирает psycopg.
+        if database_url.startswith("postgresql+asyncpg://"):
+            database_url = database_url.replace(
+                "postgresql+asyncpg://", "postgresql+psycopg://", 1,
+            )
+        elif database_url.startswith("postgresql://"):
+            database_url = database_url.replace(
+                "postgresql://", "postgresql+psycopg://", 1,
+            )
+        self._engine: Engine = create_engine(
+            database_url,
+            pool_size=pool_size,
+            max_overflow=max_overflow,
+            pool_pre_ping=True,
+            future=True,
+        )
+
+    def list_open(self, programme_kind: str) -> List[Opportunity]:
+        with self._engine.connect() as conn:
+            # Явная read-only транзакция: SET TRANSACTION действует только
+            # внутри уже начатой транзакции.
+            with conn.begin():
+                conn.execute(text("SET TRANSACTION READ ONLY"))
+                rows = conn.execute(
+                    text("""
+                        SELECT * FROM catalog.opportunity_v1
+                        WHERE programme_kind = :k AND is_open AND available_openings > 0
+                        ORDER BY opportunity_id
+                    """),
+                    {"k": programme_kind},
+                ).mappings().all()
+
+                ids = [r["opportunity_id"] for r in rows]
+                reqs: Dict[int, List[dict]] = {i: [] for i in ids}
+                if ids:
+                    for r in conn.execute(
+                        text("""
+                            SELECT opportunity_id, kind, constant_id, option
+                            FROM catalog.opportunity_requirement_v1
+                            WHERE opportunity_id = ANY(:ids)
+                            ORDER BY opportunity_id, kind, constant_id
+                        """),
+                        {"ids": ids},
+                    ).mappings():
+                        reqs[r["opportunity_id"]].append(dict(r))
+
+        return [build_opportunity(dict(r), reqs[r["opportunity_id"]]) for r in rows]
+===== matcher/app/routers/__init__.py =====
+
+===== matcher/app/routers/dictionaries.py =====
+from __future__ import annotations
+
+from typing import Literal
+
+from app.deps import load_dictionaries
+from app.schemas import Dictionary
+from fastapi import APIRouter
+
+router = APIRouter()
+
+@router.get("/dictionaries", response_model=Dictionary, tags=["service"])
+def dictionary() -> Dictionary:
+    return Dictionary
+
+@router.get("/dictionaries/{name}", response_model=list[Dictionary], tags=["service"])
+def get_dictionary_name(name:Literal["skills","languages","backgrounds"]):
+    return load_dictionaries()[name]
+
+===== matcher/app/routers/health.py =====
+from __future__ import annotations
+
+from fastapi import APIRouter
+
+from ..schemas import HealthResponse
+
+router = APIRouter()
+
+
+@router.get("/health", response_model=HealthResponse, tags=["service"])
+def health() -> HealthResponse:
+    return HealthResponse(status="ok")
+
+===== matcher/app/routers/match.py =====
+import logging
+import time
+from typing import Dict
+
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.config import Settings, get_settings
+from app.deps import get_catalog_reader
+from app.domain.filters import hard_filter
+from app.domain.profile import build_profile
+from app.domain.scoring import rank_programme
+from app.schemas import MatchRequest, MatchResponse
+
+log = logging.getLogger("matcher")
+router = APIRouter(prefix="/v1", tags=["match"])
+STRATEGIES = {"weighted_v1"}
+
+
+def route_programmes(req: MatchRequest) -> Dict[str, float]:
+    """Роутер v0 из ТЗ 2.2: какие программы искать и с каким приором."""
+    explicit = req.filters.programme_kinds or req.profile.programmes
+    if explicit:
+        return {k: 1.0 for k in dict.fromkeys(explicit)}       # без дублей, порядок сохранён
+    kinds = []
+    spheres = req.profile.spheres
+    if any(s.startswith("teaching_") for s in spheres):
+        kinds.append("teacher")
+    if any(not s.startswith("teaching_") for s in spheres):
+        kinds.append("talent")
+    if req.profile.activities:
+        kinds.append("volunteer")
+    return {k: round(1 / len(kinds), 3) for k in kinds}
+
+
+@router.post("/match", response_model=MatchResponse)
+def match(req: MatchRequest,
+          reader=Depends(get_catalog_reader),
+          s: Settings = Depends(get_settings)):
+    started = time.perf_counter()
+
+    if req.strategy and req.strategy not in STRATEGIES:
+        raise HTTPException(422, detail={"type": "unknown-strategy"})
+    prior = route_programmes(req)
+    if not prior:
+        raise HTTPException(422, detail={"type": "profile-incomplete", "missing": ["programmes"]})
+
+    p = build_profile(req.profile)
+    groups = []
+    for kind in prior:
+        min_en = s.min_english.get(kind, "B1")
+        try:
+            opps = reader.list_open(kind)
+        except Exception as e:                       # БД недоступна
+            log.exception("catalog read failed kind=%s", kind)
+            raise HTTPException(503, detail={"type": "catalog-unavailable"}) from e
+        cands = hard_filter(opps, p, req.filters, min_en)
+        groups.append(rank_programme(cands, p, kind, p.languages_for(min_en),
+                                     req.limit_per_programme, req.explain,
+                                     s.label_excellent, s.label_good))
+
+    took = int((time.perf_counter() - started) * 1000)
+    log.info("match profile_id=%s kinds=%s took_ms=%s", req.profile_id, list(prior), took)
+    return MatchResponse(request_id=req.request_id, profile_id=req.profile_id,
+                         programme_prior=prior, took_ms=took, groups=groups)
+===== matcher/app/schemas.py =====
+from typing import Any, Dict, List, Literal, Optional
+from pydantic import BaseModel, ConfigDict, Field
+
+ProgrammeKind = Literal["talent", "teacher", "volunteer"]
+
+class ProfileSnapshot(BaseModel):
+    model_config = ConfigDict(extra="allow")   # новые поля бэка не ломают нас
+    programmes: List[ProgrammeKind] = []
+    english_level: Optional[Literal["A1","A2","B1","B2","C1","C2"]] = None
+    study: Optional[Dict[str, Any]] = None
+    work_experience: Optional[str] = None
+    spheres: List[str] = []
+    activities: List[str] = []
+    desired_countries: List[str] = []
+    duration: Optional[Dict[str, int]] = None
+    start_window: Optional[str] = None
+    financial: Optional[Dict[str, Any]] = None
+    nationality: Optional[str] = None
+    preferred_lc_ids: List[int] = []
+    other_languages: List[str] = []
+
+class MatchFilters(BaseModel):
+    programme_kinds: List[ProgrammeKind] = []
+    country_codes: List[str] = []
+    exclude_opportunity_ids: List[int] = []
+
+class MatchRequest(BaseModel):
+    request_id: Optional[str] = None     # бэк пока не шлёт
+    profile_id: Optional[str] = None
+    profile: ProfileSnapshot
+    filters: MatchFilters = MatchFilters()
+    strategy: Optional[str] = None
+    limit_per_programme: int = Field(10, ge=1, le=50)
+    explain: bool = True
+
+class Reason(BaseModel):
+    code: str
+    polarity: Literal["positive", "negative"]
+    weight: float
+    text: str
+
+class MatchItem(BaseModel):
+    opportunity_id: int
+    rank: int
+    score: float
+    label: Literal["excellent", "good", "fair"]
+    reasons: List[Reason] = []
+    breakdown: Dict[str, float] = {}
+    family_key: Optional[str] = None
+    siblings_count: int = 0
+
+class ProgrammeGroup(BaseModel):
+    programme_kind: ProgrammeKind
+    total_candidates: int
+    items: List[MatchItem]
+
+class MatchResponse(BaseModel):
+    request_id: Optional[str] = None
+    profile_id: Optional[str] = None
+    strategy: str = "weighted_v1"
+    programme_prior: Dict[str, float] = {}
+    degraded: List[str] = []
+    took_ms: int = 0
+    groups: List[ProgrammeGroup] = []
+
+class Dictionary(BaseModel):
+    id: int
+    name: str
+
+class HealthResponse(BaseModel):
+    status: str = "ok"
+===== matcher/app/weights.yaml =====
+talent:    {background: 0.35, skill: 0.15, language: 0.15, city: 0.0,  duration: 0.05, cost: 0.10, chance: 0.15, freshness: 0.05}
+teacher:   {background: 0.25, skill: 0.0,  language: 0.25, city: 0.0,  duration: 0.10, cost: 0.10, chance: 0.20, freshness: 0.10}
+volunteer: {background: 0.25, skill: 0.0,  language: 0.05, city: 0.20, duration: 0.20, cost: 0.10, chance: 0.15, freshness: 0.05}
+===== matcher/pytest.ini =====
+[pytest]
+testpaths = tests
+pythonpath = .
+addopts =
+    -ra
+    --strict-markers
+    --cov=app
+    --cov-report=term-missing:skip-covered
+    --cov-report=html:htmlcov
+    --cov-report=xml:coverage.xml
+    --cov-fail-under=75
+===== matcher/tests/__init__.py =====
+
+===== matcher/tests/conftest.py =====
+import pytest
+from fastapi.testclient import TestClient
+
+from app.deps import get_catalog_reader
+from app.main import app
+from tests.factories import ListReader, make_opp
+
+
+@pytest.fixture
+def opps():
+    return [
+        make_opp(1, backgrounds={10253: "required"}, skills={10161: "required"},
+                 languages={10018: "required"}),
+        make_opp(2, backgrounds={99999: "required"}, languages={10018: "required"}),
+        make_opp(3, kind="volunteer", languages={10018: "required"},
+                 duration_weeks=6, cost_total=300.0),
+    ]
+
+
+@pytest.fixture
+def client(opps):
+    app.dependency_overrides[get_catalog_reader] = lambda: ListReader(opps)
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+===== matcher/tests/factories.py =====
+from app.domain.models import Opportunity
+from app.domain.profile import Profile
+
+
+def make_opp(oid: int, kind: str = "talent", **kw) -> Opportunity:
+    return Opportunity(opportunity_id=oid, programme_kind=kind, **kw)
+
+
+def make_profile(**kw) -> Profile:
+    base = dict(programmes=["talent"], background_ids=set(), skill_ids=set(),
+                language_ids=set(), english_level="B2", study_level_ids=set(),
+                nationality_id=None, min_weeks=None, max_weeks=None,
+                max_budget_eur=None, willing_to_pay=None, preferred_lc_ids=set())
+    base.update(kw)
+    return Profile(**base)
+
+
+class ListReader:
+    def __init__(self, opps):
+        self.opps = opps
+
+    def list_open(self, kind):
+        return [o for o in self.opps if o.programme_kind == kind]
+
+
+class BrokenReader:
+    def list_open(self, kind):
+        raise RuntimeError("db down")
+===== matcher/tests/test_api.py =====
+from app.deps import get_catalog_reader
+from app.main import app
+from tests.factories import BrokenReader
+
+BODY = {"profile_id": "t",
+        "profile": {"programmes": ["talent"], "english_level": "B2",
+                    "spheres": ["marketing", "sales"]},
+        "filters": {}}
+FEATURES = {"background", "skill", "language", "city", "duration", "cost", "chance", "freshness"}
+
+
+def test_health(client):
+    assert client.get("/health").status_code == 200
+
+def test_dictionary(client):
+    r = client.get("/dictionaries/skills")
+    assert r.status_code == 200
+    assert "id" in r.json()[0] and "name" in r.json()[0]
+
+def test_dictionary_unknown(client):
+    assert client.get("/dictionaries/foo").status_code == 422
+
+def test_match_ok(client):
+    r = client.post("/v1/match", json=BODY)
+    assert r.status_code == 200
+    groups = r.json()["groups"]
+    assert [g["programme_kind"] for g in groups] == ["talent"]
+    first = groups[0]["items"][0]
+    assert first["opportunity_id"] == 1               # совпали и образование, и навык
+    assert set(first["breakdown"]) == FEATURES
+    assert 0 <= first["score"] <= 1
+
+def test_match_ignores_unknown_profile_fields(client):
+    body = {**BODY, "profile": {**BODY["profile"], "something_new": 1}}
+    assert client.post("/v1/match", json=body).status_code == 200
+
+def test_match_without_programmes_422(client):
+    assert client.post("/v1/match", json={"profile": {}}).status_code == 422
+
+def test_unknown_strategy_422(client):
+    assert client.post("/v1/match", json={**BODY, "strategy": "magic"}).status_code == 422
+
+def test_catalog_down_503(client):
+    app.dependency_overrides[get_catalog_reader] = lambda: BrokenReader()
+    assert client.post("/v1/match", json=BODY).status_code == 503
+===== matcher/tests/test_features.py =====
+from datetime import date
+
+import pytest
+
+from app.domain.features import NEUTRAL, cost_score, coverage, duration_score, freshness_score
+from tests.factories import make_opp, make_profile
+
+
+def test_coverage_full():
+    assert coverage({1: "required", 2: "required"}, {1, 2}) == 1.0
+
+def test_coverage_preferred_weighs_half():
+    # закрыт только preferred: 0.5 из (1.0 + 0.5)
+    assert coverage({1: "required", 2: "preferred"}, {2}) == pytest.approx(0.5 / 1.5)
+
+def test_coverage_no_requirements_is_neutral():
+    assert coverage({}, {1}) == NEUTRAL
+
+def test_duration_inside_range():
+    assert duration_score(make_opp(1, duration_weeks=8), make_profile(min_weeks=6, max_weeks=10)) == 1.0
+
+def test_duration_decays_linearly():
+    # на 4 недели дольше максимума: 1 - 4/8 = 0.5
+    assert duration_score(make_opp(1, duration_weeks=14), make_profile(min_weeks=6, max_weeks=10)) == 0.5
+
+def test_duration_far_is_zero():
+    assert duration_score(make_opp(1, duration_weeks=30), make_profile(max_weeks=10)) == 0.0
+
+def test_free_opportunity_cost_is_one():
+    assert cost_score(make_opp(1, cost_total=0), make_profile()) == 1.0
+
+def test_freshness_today_is_one():
+    assert freshness_score(make_opp(1, date_opened=date.today()), date.today()) == 1.0
+===== matcher/tests/test_filters.py =====
+from datetime import date, timedelta
+
+from app.domain.filters import hard_filter
+from app.schemas import MatchFilters
+from tests.factories import make_opp, make_profile
+
+
+def run(opps, p, **filters):
+    return [o.opportunity_id for o in hard_filter(opps, p, MatchFilters(**filters), "B1")]
+
+
+def test_english_threshold():
+    o = make_opp(1, languages={10018: "required"})
+    assert run([o], make_profile(english_level="A2")) == []
+    assert run([o], make_profile(english_level="B1")) == [1]
+
+def test_closed_or_no_places_excluded():
+    assert run([make_opp(1, is_open=False), make_opp(2, available_openings=0)], make_profile()) == []
+
+def test_deadline_passed_excluded():
+    o = make_opp(1, applications_close_date=date.today() - timedelta(days=1))
+    assert run([o], make_profile()) == []
+
+def test_nationality():
+    o = make_opp(1, nationalities={10463})
+    assert run([o], make_profile(nationality_id=10353)) == []
+    assert run([o], make_profile(nationality_id=10463)) == [1]
+    assert run([o], make_profile(nationality_id=None)) == [1]      # не указал, не режем
+
+def test_budget():
+    o = make_opp(1, cost_total=300.0)
+    assert run([o], make_profile(willing_to_pay=False)) == []
+    assert run([o], make_profile(max_budget_eur=200)) == []
+    assert run([o], make_profile(max_budget_eur=500)) == [1]
+
+def test_exclude_ids():
+    assert run([make_opp(1)], make_profile(), exclude_opportunity_ids=[1]) == []
+===== matcher/tests/test_scoring.py =====
+import pytest
+
+from app.domain.scoring import load_weights, rank_programme
+from tests.factories import make_opp, make_profile
+
+
+def rank(opps, p, limit=10, explain=True):
+    return rank_programme(opps, p, "talent", {10018}, limit, explain, 0.75, 0.55)
+
+
+def test_weights_sum_to_one():
+    for kind, w in load_weights().items():
+        assert sum(w.values()) == pytest.approx(1.0), kind
+
+def test_better_match_ranks_first():
+    p = make_profile(background_ids={10253})
+    g = rank([make_opp(1, backgrounds={999: "required"}),
+              make_opp(2, backgrounds={10253: "required"})], p)
+    assert [i.opportunity_id for i in g.items] == [2, 1]
+
+def test_tie_broken_by_id():
+    g = rank([make_opp(5), make_opp(3)], make_profile())
+    assert [i.opportunity_id for i in g.items] == [3, 5]
+
+def test_family_collapsed():
+    g = rank([make_opp(1, family_key="f"), make_opp(2, family_key="f")], make_profile())
+    assert len(g.items) == 1
+    assert g.items[0].siblings_count == 1
+
+def test_limit_and_total():
+    g = rank([make_opp(i) for i in range(1, 6)], make_profile(), limit=2)
+    assert len(g.items) == 2
+    assert g.total_candidates == 5
+
+def test_no_reasons_without_explain():
+    p = make_profile(background_ids={10253})
+    g = rank([make_opp(1, backgrounds={10253: "required"})], p, explain=False)
+    assert g.items[0].reasons == []

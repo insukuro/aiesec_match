@@ -1,0 +1,18 @@
+services:
+  k6:
+    image: grafana/k6:0.54.0
+    profiles: ["loadtest"]
+    volumes:
+      - ./k6:/scripts:ro                 # скрипты — только чтение, ок
+      - ./data:/data:ro                  # токены — только чтение, ок
+      - ./results:/results               # ← вынести ИЗ /scripts, rw
+    environment:
+      BACKEND_URL: http://backend:8000
+      MATCHER_URL: http://matcher:8000
+    networks:
+      - aiesec
+
+networks:
+  aiesec:
+    name: aiesec-backend
+    external: true
