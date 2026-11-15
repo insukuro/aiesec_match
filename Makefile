@@ -154,4 +154,39 @@ web-lint:
 	cd web && npm run lint
 
 web-test:
-	cd web && npm run test
+	cd web && npm run test# Добавить в конец Makefile (отступ перед командами обязательно TAB, не пробелы).
+
+COMPOSE_QA := $(COMPOSE_DEV) -f docker-compose.qa.yml
+
+test-matcher:             ## matcher: весь набор
+	$(COMPOSE_QA) $(TOOLS) run --rm matcher-tests
+
+test-matcher-main:        ## matcher: набор на коде main до исправлений (без тестов кэша, которого там ещё нет)
+	$(COMPOSE_QA) $(TOOLS) run --rm matcher-tests -q --ignore tests/test_catalog_cache.py
+
+test-matcher-smoke:       ## matcher: только smoke
+	$(COMPOSE_QA) $(TOOLS) run --rm matcher-tests -q -m smoke
+
+test-matcher-cov:         ## matcher: покрытие, порог 90%
+	$(COMPOSE_QA) $(TOOLS) run --rm matcher-tests -q --cov=app --cov-report=term-missing --cov-fail-under=90
+
+test-matcher-defects:     ## matcher: контрольные дефекты (ловят ли тесты внесённые ошибки)
+	$(COMPOSE_QA) $(TOOLS) run --rm --entrypoint python matcher-tests tools/control_defects.py
+
+test-system:              ## системные тесты всего сервиса (сначала make qa-up)
+	$(COMPOSE_QA) $(TOOLS) run --rm qa-tests
+
+test-system-smoke:        ## системные: только smoke
+	$(COMPOSE_QA) $(TOOLS) run --rm qa-tests -q -m smoke
+
+qa-up:                    ## стек для системных тестов: matcher читает базу, кэш выключен
+	MATCHER_CATALOG_SOURCE=db MATCHER_CATALOG_CACHE_TTL_S=0 $(COMPOSE_QA) up -d --build postgres db-init backend parser matcher
+
+qa-up-cache:              ## тот же стек, но кэш каталога включён на 60 секунд (для нагрузочных прогонов)
+	MATCHER_CATALOG_SOURCE=db MATCHER_CATALOG_CACHE_TTL_S=60 $(COMPOSE_QA) up -d --build postgres db-init backend parser matcher
+
+load-seed:                ## добавить в каталог синтетические вакансии: make load-seed N=1000
+	$(COMPOSE_QA) $(TOOLS) run --rm --entrypoint python qa-tests seed_catalog.py --n $(or $(N),1000)
+
+load-clean:               ## убрать синтетические вакансии из каталога
+	$(COMPOSE_QA) $(TOOLS) run --rm --entrypoint python qa-tests seed_catalog.py --clean

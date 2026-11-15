@@ -1,0 +1,52 @@
+# Тестовые сервисы. Подключается третьим файлом после docker-compose.yml и docker-compose.dev.yml:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.qa.yml --profile tools run --rm matcher-tests
+# Обычный `make dev-up` эти сервисы не запускает (у них профиль tools).
+services:
+  # Добавка к сервису matcher: длительность кэша каталога в секундах (0 = кэш выключен).
+  matcher:
+    environment:
+      MATCHER_CATALOG_CACHE_TTL_S: ${MATCHER_CATALOG_CACHE_TTL_S:-0}
+
+  # Тесты матчера: быстрые, базе и сети не нужны.
+  matcher-tests:
+    build:
+      context: .
+      dockerfile: infra/docker/matcher.Dockerfile
+      args:
+        REQUIREMENTS: /srv/requirements/matcher-dev.txt
+    image: aiesec-matcher:dev
+    profiles: ["tools"]
+    working_dir: /srv
+    environment:
+      MATCHER_CATALOG_SOURCE: fake
+    volumes:
+      - ./matcher/app:/srv/app:ro
+      - ./matcher/tests:/srv/tests:ro
+      - ./matcher/tools:/srv/tools:ro
+      - ./matcher/pytest.ini:/srv/pytest.ini:ro
+    entrypoint: ["python", "-m", "pytest"]
+    command: ["-q"]
+
+  # Системные тесты: ходят по сети в уже поднятые backend, matcher, parser и postgres.
+  qa-tests:
+    image: aiesec-matcher:dev          # в этом образе уже есть pytest, httpx и psycopg
+    profiles: ["tools"]
+    working_dir: /qa
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      QA_BACKEND_URL: http://backend:8000
+      QA_MATCHER_URL: http://matcher:8000
+      QA_PARSER_URL: http://parser:8000
+      QA_DB_HOST: postgres
+      QA_DB_NAME: ${APP_DB:-aiesec_match_dev}
+      QA_DB_PARSER_DSN: postgresql://parser_writer:${PARSER_DB_PASSWORD:-parser}@postgres:5432/${APP_DB:-aiesec_match_dev}
+      PARSER_DB_PASSWORD: ${PARSER_DB_PASSWORD:-parser}
+      BACKEND_DB_PASSWORD: ${BACKEND_DB_PASSWORD:-backend}
+      MATCHER_DB_PASSWORD: ${MATCHER_DB_PASSWORD:-matcher}
+    volumes:
+      - ./qa:/qa:ro
+    entrypoint: ["python", "-m", "pytest"]
+    command: ["-q"]
+    networks: [backend]
