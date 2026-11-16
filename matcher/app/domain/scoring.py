@@ -70,7 +70,7 @@ def rank_programme(opps: List[Opportunity], p: Profile, kind: str, langs: Set[in
     items = [
         MatchItem(
             opportunity_id=o.opportunity_id, rank=rank, score=round(u, 4),
-            label=label(u, excellent, good), family_key=o.family_key,
+            label=label(round(u, 4), excellent, good), family_key=o.family_key,   # метка по показанной оценке (BUG-M-05)
             siblings_count=siblings[key],
             reasons=make_reasons(f, w) if explain else [],
             breakdown={k: round(v, 4) for k, v in f.items()},

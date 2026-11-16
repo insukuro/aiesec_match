@@ -81,53 +81,7 @@ services:
   web:
     profiles: ["never"]
 
-  # ---------- тесты (только по `--profile tools`) ----------
-  parser-tests:
-    build:
-      context: .
-      dockerfile: infra/docker/parser.Dockerfile
-      args:
-        REQUIREMENTS: /srv/requirements/parser-dev.txt
-    image: aiesec-parser:dev
-    profiles: ["tools"]
-    working_dir: /srv
-    environment:
-      SCHEDULER_ENABLED: "false"
-      ALLOW_NO_TOKEN: "true"
-      AIESEC_TOKEN: "test-token"
-      DATABASE_URL: sqlite:////tmp/test.db
-      DB_SCHEMA: ""
-    volumes:
-      - ./.env:/srv/.env:ro
-      - ./parser/app:/srv/app:ro
-      - ./parser/tests:/srv/tests:ro
-      - ./parser/pytest.ini:/srv/pytest.ini:ro
-      - ./parser/targets.json:/srv/targets.json:ro
-      - ./parser/.coveragerc:/srv/.coveragerc:ro
-      - ./htmlcov:/srv/htmlcov
-    entrypoint: ["python", "-m", "pytest"]
-    command: ["-q"]
-  matcher-tests:
-    build:
-      context: .
-      dockerfile: infra/docker/matcher.Dockerfile
-      args:
-        REQUIREMENTS: /srv/requirements/matcher-dev.txt
-    image: aiesec-matcher:dev
-    profiles: ["tools"]
-    working_dir: /srv
-    environment:
-      MATCHER_CATALOG_SOURCE: fake
-    volumes:
-      - ./matcher/app:/srv/app:ro
-      - ./matcher/tests:/srv/tests:ro
-      - ./matcher/pytest.ini:/srv/pytest.ini:ro
-      - ./matcher/app/data:/srv/app/data:ro
-      - ./matcher/app/weights.yaml:/srv/app/weights.yaml:ro
-      - ./matcher/app/domain/taxonomy.yaml:/srv/app/domain/taxonomy.yaml:ro
-    entrypoint: ["python", "-m", "pytest"]
-    command: ["-c", "/srv/pytest.ini", "tests"]
-    
+
 volumes:
   pgdata:
     name: aiesec-pgdata-dev

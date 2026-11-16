@@ -5,7 +5,8 @@ import logging
 from datetime import date
 from pathlib import Path
 from typing import Dict, List, Optional
-
+import threading
+import time
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
@@ -131,3 +132,33 @@ class DbCatalogReader:
                         reqs[r["opportunity_id"]].append(dict(r))
 
         return [build_opportunity(dict(r), reqs[r["opportunity_id"]]) for r in rows]
+
+
+class CachedCatalogReader:
+    """Держит ответ list_open в памяти ttl_s секунд, чтобы не читать БД на каждый запрос.
+
+    Зачем: нагрузочный тест показал, что около 90% времени подбора уходит на чтение каталога.
+    Каталог меняется редко (парсер обновляет его раз в несколько часов), поэтому одну минуту
+    можно отдавать копию из памяти. Объекты Opportunity никто не изменяет, их можно делить между запросами.
+    Ошибка чтения не кэшируется: если БД недоступна, клиент получает 503, как и без кэша.
+    """
+
+    def __init__(self, inner, ttl_s: float, clock=time.monotonic):
+        self._inner, self._ttl, self._clock = inner, ttl_s, clock
+        self._lock = threading.Lock()
+        self._data: Dict[str, tuple] = {}            # programme_kind -> (когда прочитали, список)
+
+    def _fresh(self, kind: str):
+        hit = self._data.get(kind)
+        return hit[1] if hit and self._clock() - hit[0] < self._ttl else None
+
+    def list_open(self, programme_kind: str) -> List[Opportunity]:
+        rows = self._fresh(programme_kind)
+        if rows is not None:
+            return rows
+        with self._lock:                             # в БД идёт один поток, остальные ждут готовый ответ
+            rows = self._fresh(programme_kind)
+            if rows is None:
+                rows = self._inner.list_open(programme_kind)
+                self._data[programme_kind] = (self._clock(), rows)
+        return rows

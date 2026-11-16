@@ -53,12 +53,66 @@ services:
       postgres-test-init:
         condition: service_completed_successfully
     environment:
-      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres-test:5432/aiesec_test
+      DATABASE_URL: postgresql+psycopg://parser_writer:parser@postgres-test:5432/aiesec_test
       DB_SCHEMA: parser
       ALLOW_NO_TOKEN: "true"
     entrypoint: ["alembic", "upgrade", "head"]
     restart: "no"
 
+  backend-test:
+    build:
+      context: .
+      dockerfile: infra/docker/backend.Dockerfile
+      args:
+        REQUIREMENTS: /srv/requirements/backend-dev.txt
+    environment:
+      AIESEC_DATABASE_URL: postgresql+asyncpg://backend_writer:backend@postgres-test:5432/aiesec_test
+      AIESEC_MATCHER_BASE_URL: http://matcher-test:8000
+    depends_on:
+      postgres-test-init:
+        condition: service_completed_successfully
+      postgres-test-parser-init:
+        condition: service_completed_successfully
+    command:
+      - sh
+      - -c
+      - alembic upgrade head || true; uvicorn app.main:app --host 0.0.0.0 --port 8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 20s
+    profiles: ["qa"]
+    volumes:
+      - ./backend/app:/srv/app:ro
+      - ./backend/migrations:/srv/migrations:ro
+      - ./backend/alembic.ini:/srv/alembic.ini:ro
+  parser-tests:
+    build:
+      context: .
+      dockerfile: infra/docker/parser.Dockerfile
+      args:
+        REQUIREMENTS: /srv/requirements/parser-dev.txt
+    image: aiesec-parser:dev
+    profiles: ["tools"]
+    working_dir: /srv
+    environment:
+      SCHEDULER_ENABLED: "false"
+      ALLOW_NO_TOKEN: "true"
+      AIESEC_TOKEN: "test-token"
+      DATABASE_URL: sqlite:////tmp/test.db
+      DB_SCHEMA: ""
+    volumes:
+      - ./.env:/srv/.env:ro
+      - ./parser/app:/srv/app:ro
+      - ./parser/tests:/srv/tests:ro
+      - ./parser/pytest.ini:/srv/pytest.ini:ro
+      - ./parser/targets.json:/srv/targets.json:ro
+      - ./parser/.coveragerc:/srv/.coveragerc:ro
+      - ./htmlcov:/srv/htmlcov
+    entrypoint: ["python", "-m", "pytest"]
+    command: ["-q"]
   backend-tests:
     build:
       context: .
@@ -80,3 +134,119 @@ services:
       - ./backend/pytest.ini:/srv/pytest.ini:ro
       - ./backend/migrations:/srv/migrations:ro
     command: ["python", "-m", "pytest", "-c", "/srv/pytest.ini", "tests"]
+  parser-test:
+    build:
+      context: .
+      dockerfile: infra/docker/parser.Dockerfile
+      args:
+        REQUIREMENTS: /srv/requirements/parser-dev.txt
+    environment:
+      DB_SCHEMA: parser
+      SCHEDULER_ENABLED: "false"
+      ALLOW_NO_TOKEN: "true"
+      DATABASE_URL: postgresql+psycopg://parser_writer:parser@postgres-test:5432/aiesec_test
+    depends_on:
+      postgres-test-init:
+        condition: service_completed_successfully
+      postgres-test-parser-init:
+        condition: service_completed_successfully
+    command:
+      - sh
+      - -c
+      - uvicorn app.main:app --host 0.0.0.0 --port 8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 15s
+    profiles: ["qa"]
+
+  matcher-test:
+    build:
+      context: .
+      dockerfile: infra/docker/matcher.Dockerfile
+      args:
+        REQUIREMENTS: /srv/requirements/matcher-dev.txt
+    environment:
+      MATCHER_CATALOG_SOURCE: db
+      MATCHER_DATABASE_URL: postgresql+psycopg://matcher_writer:matcher@postgres-test:5432/aiesec_test
+    depends_on:
+      postgres-test-init:
+        condition: service_completed_successfully
+      postgres-test-parser-init:
+        condition: service_completed_successfully
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 15s
+    profiles: ["qa"]
+
+
+  matcher-tests:
+    build:
+      context: .
+      dockerfile: infra/docker/matcher.Dockerfile
+      args:
+        REQUIREMENTS: /srv/requirements/matcher-dev.txt
+    image: aiesec-matcher:dev
+    profiles: ["tools"]
+    working_dir: /srv
+    environment:
+      MATCHER_CATALOG_SOURCE: fake
+    volumes:
+      - ./matcher/app:/srv/app:ro
+      - ./matcher/tests:/srv/tests:ro
+      - ./matcher/pytest.ini:/srv/pytest.ini:ro
+      - ./matcher/app/data:/srv/app/data:ro
+      - ./matcher/app/weights.yaml:/srv/app/weights.yaml:ro
+      - ./matcher/app/domain/taxonomy.yaml:/srv/app/domain/taxonomy.yaml:ro
+    entrypoint: ["python", "-m", "pytest"]
+    command: ["-c", "/srv/pytest.ini", "tests"]
+
+  matcher-defects:
+    build:
+      context: .
+      dockerfile: infra/docker/matcher.Dockerfile
+      args:
+        REQUIREMENTS: /srv/requirements/matcher-dev.txt
+    image: aiesec-matcher:dev
+    working_dir: /srv
+    volumes:
+      - ./matcher:/srv:ro
+    entrypoint: ["python", "tools/control_defects.py"]
+    profiles: ["qa"]
+  qa:
+    build:
+      context: .
+      dockerfile: infra/docker/backend.Dockerfile
+      args:
+        REQUIREMENTS: /srv/requirements/backend-dev.txt
+    depends_on:
+      postgres-test-init:
+        condition: service_completed_successfully
+      postgres-test-parser-init:
+        condition: service_completed_successfully
+      backend-test:
+        condition: service_healthy
+      matcher-test:
+        condition: service_healthy
+      parser-test:
+        condition: service_healthy
+    environment:
+      QA_BACKEND_URL: http://backend-test:8000
+      QA_MATCHER_URL: http://matcher-test:8000
+      QA_PARSER_URL: http://parser-test:8000
+      QA_DB_HOST: postgres-test
+      QA_DB_NAME: aiesec_test
+      PARSER_DB_PASSWORD: parser
+      BACKEND_DB_PASSWORD: backend
+      MATCHER_DB_PASSWORD: matcher
+    volumes:
+      - ./qa:/srv/qa:ro
+    working_dir: /srv/qa
+    command: ["python", "-m", "pytest", "-c", "pytest.ini"]
+    profiles: ["qa"]

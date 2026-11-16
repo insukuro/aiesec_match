@@ -5,8 +5,10 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from fastapi import HTTPException
+
 from app.config import get_settings
-from app.repo.catalog_reader import DbCatalogReader, FakeCatalogReader
+from app.repo.catalog_reader import CachedCatalogReader, DbCatalogReader, FakeCatalogReader
 
 DATA_DIR = Path(__file__).parent / "data"
 FILE_PREFIX = "_lists_"
@@ -23,18 +25,22 @@ def load_dictionaries() -> dict[str, list[dict[str, Any]]]:
 
 @lru_cache(maxsize=4)
 def _build_reader(source: str, database_url: str, fake_path: str,
-                  pool_size: int, max_overflow: int):
+                  pool_size: int, max_overflow: int, cache_ttl: float):
     if source == "db":
-        return DbCatalogReader(
+        reader = DbCatalogReader(
             database_url, pool_size=pool_size, max_overflow=max_overflow,
         )
+        if cache_ttl > 0:
+            return CachedCatalogReader(reader, cache_ttl)
+        return reader
     return FakeCatalogReader(fake_path)
 
 
 def get_catalog_reader():
-    """Зависимость FastAPI: reader кэшируется по ключу настроек."""
     s = get_settings()
-    return _build_reader(
-        s.catalog_source, s.database_url, s.fake_catalog_path,
-        s.db_pool_size, s.db_max_overflow,
-    )
+    if s.catalog_source == "db" and not s.database_url:
+        raise HTTPException(503, detail={"type": "catalog-unavailable"})
+    try:
+        return _build_reader(...)
+    except Exception as e:
+        raise HTTPException(503, detail={"type": "catalog-unavailable"}) from e

@@ -29,6 +29,7 @@ SERVICES := backend parser matcher
         shell migrate \
         dev-up dev-down dev-restart dev-logs dev-shell \
         test test-backend test-parser test-matcher test-web test-file \
+        test-system test-matcher-defects \
         openapi-snapshot \
         web-install web-dev web-build web-lint web-test web-coverage \
         $(addprefix up-,$(SERVICES)) \
@@ -115,15 +116,24 @@ endif
 # (postgres-test-init + postgres-test-parser-init + bootstrap + catalog-вьюхи)
 test-backend:             ## backend-тесты на Postgres с bootstrap и catalog-вьюхами
 	$(COMPOSE_TEST) $(TOOLS) run --rm backend-tests
+
+test-system:              ## системные тесты в test-стеке (aiesec_test)
+	$(COMPOSE_TEST) --profile qa up -d --wait backend-test
+	$(COMPOSE_TEST) --profile qa run --rm qa
+
+test-matcher-defects:
+	$(COMPOSE_TEST) --profile qa run --rm --no-deps matcher-defects
+
 test-web:                 ## web-тесты (vitest)
 	cd web && npm run test -- --run
-# parser и matcher — на sqlite/fake, без postgres-test*. Без test.yml,
-# чтобы compose не валидировал чужие зависимости.
+
+# parser и matcher — на sqlite/fake, сервисы parser-tests/matcher-tests
+# лежат в docker-compose.test.yml (profiles: tools), поэтому COMPOSE_TEST.
 test-parser:              ## parser-тесты (sqlite, FakeClient)
-	$(COMPOSE_DEV) $(TOOLS) run --rm parser-tests
+	$(COMPOSE_TEST) $(TOOLS) run --rm parser-tests
 
 test-matcher:             ## matcher-тесты (FakeCatalogReader)
-	$(COMPOSE_DEV) $(TOOLS) run --rm matcher-tests
+	$(COMPOSE_TEST) $(TOOLS) run --rm matcher-tests
 
 test-file:                ## test-file SERVICE=backend F=tests/...: один файл
 	@test -n "$(SERVICE)" -a -n "$(F)" || (echo "SERVICE=... F=tests/..." && exit 1)
@@ -132,7 +142,7 @@ ifeq ($(SERVICE),web)
 else ifeq ($(SERVICE),backend)
 	$(COMPOSE_TEST) $(TOOLS) run --rm backend-tests $(F)
 else
-	$(COMPOSE_DEV) $(TOOLS) run --rm $(SERVICE)-tests $(F)
+	$(COMPOSE_TEST) $(TOOLS) run --rm $(SERVICE)-tests $(F)
 endif
 
 test-collect:             ## test-collect SERVICE=backend|parser
@@ -140,7 +150,7 @@ test-collect:             ## test-collect SERVICE=backend|parser
 ifeq ($(SERVICE),backend)
 	$(COMPOSE_TEST) $(TOOLS) run --rm backend-tests --collect-only -o addopts=""
 else
-	$(COMPOSE_DEV) $(TOOLS) run --rm $(SERVICE)-tests --collect-only -o addopts=""
+	$(COMPOSE_TEST) $(TOOLS) run --rm $(SERVICE)-tests --collect-only -o addopts=""
 endif
 
 test-cov:                 ## test-cov [SERVICE=...]: coverage (порог — в pytest.ini)
@@ -151,11 +161,11 @@ else ifeq ($(SERVICE),web)
 else ifeq ($(SERVICE),backend)
 	$(COMPOSE_TEST) $(TOOLS) run --rm backend-tests --tb=no
 else
-	$(COMPOSE_DEV) $(TOOLS) run --rm $(SERVICE)-tests --tb=no
+	$(COMPOSE_TEST) $(TOOLS) run --rm $(SERVICE)-tests --tb=no
 endif
 
 test-live:                ## live-тесты парсера против AIESEC
-	$(COMPOSE_DEV) $(TOOLS) run --rm -e AIESEC_TOKEN=$${AIESEC_TOKEN:?нужен AIESEC_TOKEN} parser-tests -m live -o addopts=""
+	$(COMPOSE_TEST) $(TOOLS) run --rm -e AIESEC_TOKEN=$${AIESEC_TOKEN:?нужен AIESEC_TOKEN} parser-tests -m live -o addopts=""
 
 # ==========================================================
 #  PER-SERVICE АЛИАСЫ (без test-* — тесты явные выше)

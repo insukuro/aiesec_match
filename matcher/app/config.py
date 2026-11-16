@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     catalog_source: Literal["db", "fake"] = "db"
     fake_catalog_path: str = "app/data/fake_catalog.json"
     database_url: str = ""
+    catalog_cache_ttl_s: float = 0          # 0 = кэш выключен; в проде 60
     label_excellent: float = 0.75
     label_good: float = 0.55
 
@@ -27,13 +28,6 @@ class Settings(BaseSettings):
     # Дефолт anyio — 40; для CPU-bound ranking этого часто мало.
     thread_limiter_tokens: int = 80
 
-    @model_validator(mode="after")
-    def _check_db_url(self) -> "Settings":
-        if self.catalog_source == "db" and not self.database_url:
-            raise ValueError(
-                "MATCHER_DATABASE_URL must be set when MATCHER_CATALOG_SOURCE='db'"
-            )
-        return self
 
 
 @lru_cache
