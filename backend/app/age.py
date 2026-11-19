@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import date
 
-MIN_AGE = 16
-MAX_AGE = 34  # «строго меньше 35»
+MIN_AGE = 18
+MAX_AGE = 31
 
 
 def _years_between(birth: date, today: date) -> int:
@@ -13,8 +13,8 @@ def _years_between(birth: date, today: date) -> int:
 def validate_birth_date(birth: date | None, today: date | None = None) -> None:
     """Бросает ValueError с кодом 'birth_date_invalid' если:
        - дата в будущем,
-       - возраст < 16,
-       - возраст > 34 (т.е. строго < 35),
+       - возраст < 18,
+       - возраст > 31 (т.е. строго < 30),
        - возраст > 120 (защита от опечаток).
     """
     if birth is None:

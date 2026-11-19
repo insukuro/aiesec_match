@@ -49,19 +49,19 @@ class TestValidateBirthDate:
 
     def test_min_age_boundary_ok(self):
         today = date(2026, 11, 16)
-        # ровно 16 — ок
-        validate_birth_date(date(2010, 1, 1), today=today)
+        # ровно 18 — ок
+        validate_birth_date(date(2008, 1, 1), today=today)
 
     def test_too_old(self):
         today = date(2026, 11, 16)
-        # 35 лет (строго больше MAX_AGE=34)
+        # 30 лет 
         with pytest.raises(ValueError, match="birth_date_too_old"):
             validate_birth_date(date(1991, 1, 1), today=today)
 
     def test_max_age_boundary_ok(self):
         today = date(2026, 11, 16)
-        # 34 года — ок
-        validate_birth_date(date(1992, 1, 1), today=today)
+        # 30 лет — ок
+        validate_birth_date(date(1996, 1, 1), today=today)
 
     def test_error_messages_complete(self):
         assert set(AGE_ERROR_MESSAGES) == {

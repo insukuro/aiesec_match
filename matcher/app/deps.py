@@ -9,6 +9,9 @@ from fastapi import HTTPException
 
 from app.config import get_settings
 from app.repo.catalog_reader import CachedCatalogReader, DbCatalogReader, FakeCatalogReader
+import logging
+log = logging.getLogger("matcher.deps")
+
 
 DATA_DIR = Path(__file__).parent / "data"
 FILE_PREFIX = "_lists_"
@@ -39,8 +42,13 @@ def _build_reader(source: str, database_url: str, fake_path: str,
 def get_catalog_reader():
     s = get_settings()
     if s.catalog_source == "db" and not s.database_url:
+        log.exception("failed to build catalog reader")
         raise HTTPException(503, detail={"type": "catalog-unavailable"})
-    try:
-        return _build_reader(...)
-    except Exception as e:
-        raise HTTPException(503, detail={"type": "catalog-unavailable"}) from e
+    return _build_reader(
+        s.catalog_source,
+        s.database_url,
+        s.fake_catalog_path,
+        s.db_pool_size,
+        s.db_max_overflow,
+        s.catalog_cache_ttl_s,
+    )

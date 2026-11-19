@@ -21,7 +21,7 @@ describe("parseIsoDate", () => {
   it("валидная строка", () => {
     const d = parseIsoDate("2020-01-15")!;
     expect(d.getFullYear()).toBe(2020);
-    expect(d.getMonth()).toBe(0);       // 0-based
+    expect(d.getMonth()).toBe(0); // 0-based
     expect(d.getDate()).toBe(15);
   });
   it("пустая и мусор — null", () => {
@@ -32,12 +32,17 @@ describe("parseIsoDate", () => {
 
 describe("maxBirthDate / minBirthDate", () => {
   const today = d("2025-06-15");
-  it("maxBirthDate = сегодня − MIN_AGE", () => {
-    expect(maxBirthDate(today)).toBe("2009-06-15");
+  
+  it("maxBirthDate = сегодня − MIN_AGE лет", () => {
+    // 2025 - 18 = 2007
+    expect(maxBirthDate(today)).toBe("2007-06-15");
   });
-  it("minBirthDate = сегодня − (MAX_AGE+1) + 1 день", () => {
-    expect(minBirthDate(today)).toBe("1990-06-16");
+  
+  it("minBirthDate = сегодня − MAX_AGE лет", () => {
+    // 2025 - 30 = 1995
+    expect(minBirthDate(today)).toBe("1994-06-16");
   });
+  
   it("не зависит от UTC-сдвига (регрессия)", () => {
     const lateNight = new Date("2025-06-15T00:30:00+05:00");
     const expected = new Date(lateNight);
@@ -51,29 +56,37 @@ describe("validateAge", () => {
   it("ok", () => {
     expect(validateAge("2000-01-01")).toBeNull();
   });
+  
   it("будущее", () => {
     expect(validateAge("2999-01-01")).toMatch(/в будущем/i);
   });
+  
   it("слишком юн", () => {
     const iso = maxBirthDate();
-    const dPlus = new Date(iso); dPlus.setDate(dPlus.getDate() + 1);
+    const dPlus = new Date(iso);
+    dPlus.setDate(dPlus.getDate() + 1); // +1 день, чтобы стать моложе минимального возраста
     expect(validateAge(dPlus.toISOString().slice(0, 10))).toMatch(/Минимальный возраст/);
   });
+  
   it("слишком стар", () => {
     const iso = minBirthDate();
-    const dMinus = new Date(iso); dMinus.setDate(dMinus.getDate() - 1);
+    const dMinus = new Date(iso);
+    dMinus.setDate(dMinus.getDate() - 1); // -1 день, чтобы стать старше максимального возраста
     expect(validateAge(dMinus.toISOString().slice(0, 10))).toMatch(/Максимальный возраст/);
   });
+  
   it("null и пустая строка — null", () => {
     expect(validateAge(null)).toBeNull();
     expect(validateAge(undefined)).toBeNull();
     expect(validateAge("")).toBeNull();
   });
+  
   it("мусор — некорректная дата", () => {
     expect(validateAge("abc")).toMatch(/Некорректная/);
   });
-  it("MIN_AGE/MAX_AGE — 16/34", () => {
-    expect(MIN_AGE).toBe(16);
-    expect(MAX_AGE).toBe(34);
+  
+  it("MIN_AGE/MAX_AGE — 18/30", () => {
+    expect(MIN_AGE).toBe(18);
+    expect(MAX_AGE).toBe(30);
   });
 });

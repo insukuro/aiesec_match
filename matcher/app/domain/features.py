@@ -57,6 +57,7 @@ def freshness_score(o: Opportunity, today: date) -> float:
     return math.exp(-days / 90)
 
 
+
 def chance_scores(opps: List[Opportunity], a: float = 10.0) -> Dict[int, float]:
     """Шанс на принятие: сглаженная доля принятых × доля свободных мест, затем процентиль."""
     if not opps:

@@ -47,7 +47,7 @@ async def put_me(
     # кто-то расширит модель, подстрахуемся ещё раз.
     if body.birth_date is not None:
         age = age_from_birth(body.birth_date)
-        if age is None or age < 16 or age > 34:
+        if age is None or age < 18 or age > 30:
             code = "birth_date_too_young" if (age or 0) < 16 else "birth_date_too_old"
             raise Validation(errors=[{
                 "loc": ["body", "birth_date"],

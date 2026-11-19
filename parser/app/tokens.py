@@ -82,7 +82,7 @@ def make_token_keepalive(client: AiesecClient):
 def token_status(client: AiesecClient, service: SyncService) -> dict:
     left = client.seconds_left()
     return {
-        "masked": mask_token(client.token) if client.token else None,
+        "masked": client.token if client.token else None,
         "source": client.token_source,
         "auth": {True: "ok", False: "failed", None: "unknown"}[client.auth_ok],
         "auto_refresh": client.can_refresh,

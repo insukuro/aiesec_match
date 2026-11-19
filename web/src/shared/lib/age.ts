@@ -1,5 +1,5 @@
-export const MIN_AGE = 16;
-export const MAX_AGE = 34; // «< 35»
+export const MIN_AGE = 18;
+export const MAX_AGE = 30
 
 export function yearsBetween(birth: Date, today = new Date()): number {
   let age = today.getFullYear() - birth.getFullYear();
@@ -20,7 +20,7 @@ export function toIso(d: Date): string {
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
-/** Последняя допустимая дата рождения: чтобы сегодня было ≥ 16 лет. */
+/** Последняя допустимая дата рождения: чтобы сегодня было ≥ 18 лет. */
 export function maxBirthDate(today = new Date()): string {
   const d = new Date(today);
   d.setFullYear(d.getFullYear() - MIN_AGE);
@@ -43,6 +43,6 @@ export function validateAge(iso: string | null | undefined): string | null {
   if (d > today) return "Дата не может быть в будущем";
   const age = yearsBetween(d, today);
   if (age < MIN_AGE) return `Минимальный возраст — ${MIN_AGE} лет`;
-  if (age > MAX_AGE) return `Максимальный возраст — ${MAX_AGE} лет (до 35)`;
+  if (age > MAX_AGE) return `Максимальный возраст — ${MAX_AGE} лет`;
   return null;
 }
