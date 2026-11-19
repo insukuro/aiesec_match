@@ -66,7 +66,17 @@ aiesec_match
 │  ├─ pytest.ini
 │  └─ tests
 │     ├─ conftest.py
-│     └─ test_concurrency.py
+│     ├─ test_age.py
+│     ├─ test_api_auth.py
+│     ├─ test_api_feedback.py
+│     ├─ test_api_profiles.py
+│     ├─ test_api_recommendations.py
+│     ├─ test_auth_unit.py
+│     ├─ test_completeness.py
+│     ├─ test_concurrency.py
+│     ├─ test_errors.py
+│     ├─ test_matcher_client.py
+│     └─ test_schemas_unit.py
 ├─ docker-compose.dev.yml
 ├─ docker-compose.test.yml
 ├─ docker-compose.yml
@@ -141,6 +151,27 @@ aiesec_match
 │     ├─ matcher.txt
 │     ├─ parser-dev.txt
 │     └─ parser.txt
+├─ loadtest
+│  ├─ Makefile.loadtest
+│  ├─ data
+│  │  └─ tokens.json
+│  ├─ docker-compose.loadtest.yml
+│  ├─ k6
+│  │  ├─ backend.js
+│  │  ├─ e2e.js
+│  │  ├─ matcher.js
+│  │  └─ profiles.js
+│  ├─ results
+│  │  ├─ backend-baseline.json
+│  │  ├─ backend-spike.json
+│  │  ├─ backend-stress.json
+│  │  ├─ e2e.json
+│  │  ├─ matcher-baseline.json
+│  │  ├─ matcher-spike.json
+│  │  └─ matcher-stress.json
+│  └─ scripts
+│     ├─ seed_users.sh
+│     └─ summarize.sh
 ├─ matcher
 │  ├─ app
 │  │  ├─ __init__.py
@@ -172,15 +203,29 @@ aiesec_match
 │  │  │  └─ match.py
 │  │  ├─ schemas.py
 │  │  └─ weights.yaml
+│  ├─ migrations
 │  ├─ pytest.ini
-│  └─ tests
-│     ├─ __init__.py
-│     ├─ conftest.py
-│     ├─ factories.py
-│     ├─ test_api.py
-│     ├─ test_features.py
-│     ├─ test_filters.py
-│     └─ test_scoring.py
+│  ├─ tests
+│  │  ├─ __init__.py
+│  │  ├─ conftest.py
+│  │  ├─ factories.py
+│  │  ├─ test_ai_cycle.py
+│  │  ├─ test_api.py
+│  │  ├─ test_boundaries.py
+│  │  ├─ test_catalog_cache.py
+│  │  ├─ test_catalog_reader.py
+│  │  ├─ test_contract.py
+│  │  ├─ test_features.py
+│  │  ├─ test_filters.py
+│  │  ├─ test_negative.py
+│  │  ├─ test_privacy.py
+│  │  ├─ test_profile.py
+│  │  ├─ test_regression_bugs.py
+│  │  ├─ test_router.py
+│  │  ├─ test_scoring.py
+│  │  └─ test_spec_values.py
+│  └─ tools
+│     └─ control_defects.py
 ├─ parser
 │  ├─ .coveragerc
 │  ├─ alembic.ini
@@ -216,7 +261,8 @@ aiesec_match
 │  │  ├─ script.py.mako
 │  │  └─ versions
 │  │     ├─ 0001_initial.py
-│  │     └─ 0002_catalog_v1.py
+│  │     ├─ 0002_catalog_v1.py
+│  │     └─ 0003_catalog_v1_fix.py
 │  ├─ pytest.ini
 │  ├─ targets.json
 │  └─ tests
@@ -228,7 +274,26 @@ aiesec_match
 │     ├─ test_normalize.py
 │     ├─ test_openapi.py
 │     └─ test_sync.py
+├─ qa
+│  ├─ catalog_data.py
+│  ├─ conftest.py
+│  ├─ load
+│  │  ├─ locustfile_backend.py
+│  │  ├─ locustfile_matcher.py
+│  │  ├─ monitor.py
+│  │  ├─ run_load.sh
+│  │  ├─ shape.py
+│  │  └─ summarize.py
+│  ├─ pytest.ini
+│  ├─ seed_catalog.py
+│  ├─ test_backend_negative.py
+│  ├─ test_db_contract.py
+│  ├─ test_e2e_user_flow.py
+│  ├─ test_matcher_db.py
+│  ├─ test_parser_api.py
+│  └─ test_smoke.py
 ├─ scripts
+│  ├─ find_env_vars.py
 │  └─ smoke.sh
 └─ web
    ├─ README.md

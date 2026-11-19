@@ -1,10 +1,9 @@
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
-from ..models import NotificationOutbox
 
 router = APIRouter(prefix="/notifications", tags=["internal"])
 

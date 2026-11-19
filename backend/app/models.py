@@ -5,11 +5,11 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
-    CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, Numeric,
+    Date, DateTime, ForeignKey, Index, Integer, Numeric,
     String, Text, UniqueConstraint, func, text, MetaData, Boolean
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):

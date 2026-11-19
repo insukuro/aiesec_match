@@ -3,13 +3,11 @@
 Бот отсутствует; шаг «отправить в Telegram» выполняет внешний consumer
 через /internal/v1/notifications/*. Здесь только сборка payload и dedupe.
 """
-from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..catalog import current_watermark
-from ..models import NotificationOutbox, Profile, Subscription
+from ..models import NotificationOutbox, Subscription
 
 
 async def enqueue_for_user(session: AsyncSession, user_id, run_id: str, items: list[dict]) -> None:

@@ -10,7 +10,7 @@ from ..auth import (
 )
 from ..config import get_settings
 from ..db import get_session
-from ..errors import BadCredentials, EmailTaken, Validation
+from ..errors import BadCredentials, EmailTaken
 from ..schemas import (
     AnonymousAuthIn,
     AnonymousAuthOut,
