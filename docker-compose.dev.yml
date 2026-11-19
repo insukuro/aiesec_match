@@ -2,14 +2,52 @@ services:
   postgres:
     image: pgvector/pgvector:pg16
     container_name: aiesec-postgres-dev
+    restart: unless-stopped
     environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: postgres
       APP_DB: ${APP_DB:-aiesec_match_dev}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # FIX #12: проверяем подключение к postgres, а не к APP_DB,
+      # иначе на первом запуске (базы ещё нет) — вечный unhealthy.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   db-init:
     image: pgvector/pgvector:pg16
     container_name: aiesec-db-init-dev
+    restart: "no"
+    # FIX #1: ждём здоровый postgres и реально выполняем bootstrap.sql
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: ${POSTGRES_USER:-postgres}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
       APP_DB: ${APP_DB:-aiesec_match_dev}
+      BACKEND_DB_PASSWORD: ${BACKEND_DB_PASSWORD:-backend}
+      PARSER_DB_PASSWORD: ${PARSER_DB_PASSWORD:-parser}
+      MATCHER_DB_PASSWORD: ${MATCHER_DB_PASSWORD:-matcher}
+    volumes:
+      - ./infra/postgres:/bootstrap:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        psql -v ON_ERROR_STOP=1 \
+             -v app_db="$$APP_DB" \
+             -v backend_pw="$$BACKEND_DB_PASSWORD" \
+             -v parser_pw="$$PARSER_DB_PASSWORD" \
+             -v matcher_pw="$$MATCHER_DB_PASSWORD" \
+             -d postgres -f /bootstrap/bootstrap.sql
 
   backend:
     build:
@@ -19,6 +57,10 @@ services:
         REQUIREMENTS: /srv/requirements/backend-dev.txt
     image: aiesec-backend:dev
     container_name: aiesec-backend-dev
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      db-init:  { condition: service_completed_successfully }
     command:
       - sh
       - -c
@@ -26,12 +68,23 @@ services:
     environment:
       AIESEC_DATABASE_URL: postgresql+asyncpg://backend_writer:${BACKEND_DB_PASSWORD:-backend}@postgres:5432/${APP_DB:-aiesec_match_dev}
       AIESEC_MATCHER_BASE_URL: ${MATCHER_BASE_URL:-http://matcher:8000}
+      AIESEC_JWT_SECRET: ${JWT_SECRET:-dev-jwt}
+      AIESEC_PROFILE_HMAC_SECRET: ${PROFILE_HMAC_SECRET:-dev-hmac}
     volumes:
       - ./.env:/srv/.env:ro
       - ./backend/app:/srv/app
       - ./backend/migrations:/srv/migrations
       - ./backend/openapi:/srv/openapi
       - ./backend/tests:/srv/tests
+    # FIX #8: без ports фронт на хосте (npm run dev) не увидит backend
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3).read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   parser:
     build:
@@ -41,6 +94,10 @@ services:
         REQUIREMENTS: /srv/requirements/parser-dev.txt
     image: aiesec-parser:dev
     container_name: aiesec-parser-dev
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      db-init:  { condition: service_completed_successfully }
     command:
       - sh
       - -c
@@ -58,7 +115,15 @@ services:
       - ./parser/pytest.ini:/srv/pytest.ini:ro
       - ./parser/alembic.ini:/srv/alembic.ini:ro
       - ./parser/migrations:/srv/migrations
-  
+    ports:
+      - "127.0.0.1:${PARSER_PORT:-8001}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3).read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
   matcher:
     build:
       context: .
@@ -67,6 +132,10 @@ services:
         REQUIREMENTS: /srv/requirements/matcher-dev.txt
     image: aiesec-matcher:dev
     container_name: aiesec-matcher-dev
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      db-init:  { condition: service_completed_successfully }
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     environment:
       MATCHER_CATALOG_SOURCE: ${MATCHER_CATALOG_SOURCE:-fake}
@@ -74,13 +143,19 @@ services:
     volumes:
       - ./matcher/app:/srv/app
       - ./matcher/tests:/srv/tests
+      - ./matcher/migrations:/srv/migrations        # FIX #16: если есть alembic
     ports:
       - "127.0.0.1:${MATCHER_PORT:-8002}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3).read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   # web в dev не поднимается: используем `npm run dev` локально.
   web:
     profiles: ["never"]
-
 
 volumes:
   pgdata:

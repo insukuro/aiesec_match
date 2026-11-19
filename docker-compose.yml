@@ -14,7 +14,8 @@ services:
       - pgdata:/var/lib/postgresql/data
       - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-platform} -d ${APP_DB:-aiesec_match}"]
+      # FIX #12: проверяем postgres, а не APP_DB (иначе deadlock на первом запуске)
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d postgres"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -35,6 +36,7 @@ services:
       APP_DB: ${APP_DB:-aiesec_match}
       BACKEND_DB_PASSWORD: ${BACKEND_DB_PASSWORD:-backend}
       PARSER_DB_PASSWORD: ${PARSER_DB_PASSWORD:-parser}
+      MATCHER_DB_PASSWORD: ${MATCHER_DB_PASSWORD:-matcher}   # FIX #4: проброшен
     volumes:
       - ./infra/postgres:/bootstrap:ro
     entrypoint: ["/bin/sh", "-c"]
@@ -45,7 +47,7 @@ services:
              -v app_db="$$APP_DB" \
              -v backend_pw="$$BACKEND_DB_PASSWORD" \
              -v parser_pw="$$PARSER_DB_PASSWORD" \
-             -v matcher_pw="${MATCHER_DB_PASSWORD:-matcher}" \
+             -v matcher_pw="$$MATCHER_DB_PASSWORD" \
              -d postgres -f /bootstrap/bootstrap.sql
     networks: [backend]
 
@@ -67,6 +69,13 @@ services:
       AIESEC_MATCHER_BASE_URL: http://matcher:8000
     ports:
       - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
+    # FIX #2/#17: healthcheck, иначе web с depends_on: service_healthy падает
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=3).read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks: [backend]
 
   web:
@@ -77,7 +86,7 @@ services:
     container_name: aiesec-web
     restart: unless-stopped
     depends_on:
-      backend: { condition: service_healthy }
+      backend: { condition: service_healthy }   # теперь backend имеет healthcheck
     ports:
       - "127.0.0.1:${WEB_PORT:-8080}:80"
     networks: [backend]
@@ -90,10 +99,8 @@ services:
     container_name: aiesec-parser
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
-      db-init:
-        condition: service_completed_successfully
+      postgres: { condition: service_healthy }
+      db-init:  { condition: service_completed_successfully }
     environment:
       AIESEC_TOKEN: ${AIESEC_TOKEN:-}
       AIESEC_REFRESH_TOKEN: ${AIESEC_REFRESH_TOKEN:-}
@@ -102,7 +109,9 @@ services:
       AIESEC_AUTH_URL: ${AIESEC_AUTH_URL:-https://auth.aiesec.org/oauth/token}
       AIESEC_AUTH_ORIGIN: ${AIESEC_AUTH_ORIGIN:-https://aiesec.org}
       ALLOW_NO_TOKEN: ${PARSER_ALLOW_NO_TOKEN:-false}
-      DATABASE_URL: postgresql+psycopg://parser_writer:${PARSER_DB_PASSWORD:-parser}@postgres:5432/${PARSER_DB:-parser}
+      # FIX #3: используем APP_DB (одна база на проект), а не PARSER_DB,
+      # если у вас реально отдельная БД parser — верните ${PARSER_DB:-parser}
+      DATABASE_URL: postgresql+psycopg://parser_writer:${PARSER_DB_PASSWORD:-parser}@postgres:5432/${APP_DB:-aiesec_match}
       DB_SCHEMA: parser
       TARGETS_FILE: /srv/targets.json
       REQUEST_DELAY_SEC: ${PARSER_REQUEST_DELAY_SEC:-0.7}
@@ -110,19 +119,19 @@ services:
       RECONCILE_INTERVAL_HOURS: ${PARSER_RECONCILE_INTERVAL_HOURS:-24}
       INCREMENTAL_DATE_FILTER: ${PARSER_INCREMENTAL_DATE_FILTER:-created}
       SCHEDULER_ENABLED: ${PARSER_SCHEDULER_ENABLED:-true}
+      AIESEC_MATCHER_BASE_URL: http://matcher:8000     # FIX #5: как у backend
     volumes:
       - ./parser/targets.json:/srv/targets.json:ro
     ports:
       - "127.0.0.1:${PARSER_PORT:-8001}:8000"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status == 200 else 1)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3).read()"]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 20s
     networks: [backend]
-    
-    
+
   matcher:
     build:
       context: .
@@ -130,20 +139,22 @@ services:
     image: aiesec-matcher
     container_name: aiesec-matcher
     restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      db-init:  { condition: service_completed_successfully }
     environment:
       MATCHER_CATALOG_SOURCE: ${MATCHER_CATALOG_SOURCE:-fake}
-      MATCHER_DATABASE_URL: postgresql+psycopg://matcher_writer:${MATCHER_DB_PASSWORD:-matcher}@postgres:5432/${APP_DB:-aiesec_match}    
-    depends_on:
-      postgres:
-        condition: service_healthy
+      MATCHER_DATABASE_URL: postgresql+psycopg://matcher_writer:${MATCHER_DB_PASSWORD:-matcher}@postgres:5432/${APP_DB:-aiesec_match}
+    # FIX #14: пробросим наружу для отладки (можно убрать)
+    ports:
+      - "127.0.0.1:${MATCHER_PORT:-8002}:8000"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3).read()"]
       interval: 15s
       timeout: 5s
       retries: 5
-    networks:
-      - backend
-
+      start_period: 20s
+    networks: [backend]
 
 volumes:
   pgdata:
