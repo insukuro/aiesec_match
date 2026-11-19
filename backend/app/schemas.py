@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
-from .age import validate_birth_date
+from .domain.age import validate_birth_date
 
 ProgrammeKind = Literal["talent", "teacher", "volunteer"]
 
@@ -46,20 +46,33 @@ class LoginIn(BaseModel):
         return v.strip().lower()
 
 
-class AnonymousAuthIn(BaseModel):
-    device_secret: str | None = None
+class ChangePasswordIn(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def _password(cls, v: str) -> str:
+        return _validate_password(v)
 
 
-class AnonymousAuthOut(BaseModel):
-    access_token: str
-    expires_in: int
-    device_secret: str | None = None
+class ChangeEmailIn(BaseModel):
+    new_email: EmailStr
+    password: str = Field(min_length=1, max_length=128)
+
+    @field_validator("new_email")
+    @classmethod
+    def _email_lower(cls, v: str) -> str:
+        return v.strip().lower()
+
+
+class VerifyEmailIn(BaseModel):
+    code: str = Field(min_length=4, max_length=12)
 
 
 class TokenOut(BaseModel):
     access_token: str
     expires_in: int
-    is_anonymous: bool = False
 
 
 class TelegramAuthIn(BaseModel):
@@ -68,8 +81,8 @@ class TelegramAuthIn(BaseModel):
 
 class MeOut(BaseModel):
     user_id: str
-    is_anonymous: bool
     email: str | None = None
+    email_verified: bool = False
     has_profile: bool
     profile_version: int | None
     identities: list[dict]
@@ -92,9 +105,9 @@ class ProfileIn(BaseModel):
     city: str | None = Field(default=None, max_length=100)
     preferred_lc_ids: list[int] | None = None
     study: dict[str, Any] | None = None
-    english_level: Literal["A1","A2","B1","B2","C1","C2"] | None = None
+    english_level: Literal["A1", "A2", "B1", "B2", "C1", "C2"] | None = None
     other_languages: list[str] | None = None
-    work_experience: Literal["none","1_2_years","3_5_years","5_plus_years"] | None = None
+    work_experience: Literal["none", "1_2_years", "3_5_years", "5_plus_years"] | None = None
     spheres: list[str] | None = None
     activities: list[str] | None = None
     desired_countries: list[str] | None = None
@@ -165,6 +178,16 @@ class RecommendationRunIn(BaseModel):
     strategy: str | None = None
 
 
+class RecommendationRunSummary(BaseModel):
+    run_id: str
+    state: Literal["queued", "running", "succeeded", "failed"]
+    profile_version: int
+    total_candidates: int | None
+    created_at: datetime
+    finished_at: datetime | None
+    error: str | None = None
+
+
 class RecItem(BaseModel):
     rank: int
     score: float
@@ -184,7 +207,7 @@ class RecGroup(BaseModel):
 
 class RecommendationRun(BaseModel):
     run_id: str
-    state: Literal["queued","running","succeeded","failed"]
+    state: Literal["queued", "running", "succeeded", "failed"]
     profile_version: int
     strategy: str | None
     created_at: datetime
@@ -198,7 +221,7 @@ class RecommendationRun(BaseModel):
 
 class FeedbackIn(BaseModel):
     opportunity_id: int
-    signal: Literal["opened","liked","disliked","hidden","applied"]
+    signal: Literal["opened", "liked", "disliked", "hidden", "applied"]
     run_id: str | None = None
 
 
@@ -206,3 +229,38 @@ class SubscriptionPrefs(BaseModel):
     notify_new_matches: bool = True
     min_score: float = Field(0.7, ge=0, le=1)
     channels: list[Literal["telegram"]] = ["telegram"]
+
+
+class AnalyticsOut(BaseModel):
+    profile_completeness: dict[str, Any]
+    programme_distribution: list[dict[str, Any]]
+    interests_distribution: list[dict[str, Any]]
+    activity_series: list[dict[str, Any]]
+    recommendation_statistics: list[dict[str, Any]]
+
+
+class NotificationItem(BaseModel):
+    notification_id: str
+    kind: str
+    payload: dict[str, Any]
+    created_at: datetime
+    sent_at: datetime | None
+    read_at: datetime | None
+
+
+class NotificationsPage(BaseModel):
+    items: list[NotificationItem]
+    total: int
+    limit: int
+    offset: int
+    unread: int
+
+
+class LinkCodeOut(BaseModel):
+    code: str
+    expires_in: int
+
+
+class LinkCodeConfirmIn(BaseModel):
+    code: str = Field(min_length=4, max_length=16)
+    telegram_chat_id: int | None = None

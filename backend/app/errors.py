@@ -17,17 +17,14 @@ class Validation(Problem):
     title = "Validation error"
     status_code = 422
 
+    def __init__(self, errors: list[dict] | None = None, detail: str = ""):
+        super().__init__(detail=detail, errors=errors or [])
+
 
 class Unauthorized(Problem):
     type = "/problems/unauthorized"
     title = "Unauthorized"
     status_code = 401
-
-
-class ForbiddenGuest(Problem):
-    type = "/problems/forbidden-guest"
-    title = "Guest access forbidden"
-    status_code = 403
 
 
 class EmailTaken(Problem):
@@ -45,7 +42,7 @@ class BadCredentials(Problem):
 class ConsentRequired(Problem):
     type = "/problems/consent-required"
     title = "Consent required"
-    status_code = 403
+    status_code = 409
 
 
 class ProfileNotFound(Problem):
@@ -63,6 +60,12 @@ class OpportunityNotFound(Problem):
 class RunNotFound(Problem):
     type = "/problems/run-not-found"
     title = "Run not found"
+    status_code = 404
+
+
+class NotificationNotFound(Problem):
+    type = "/problems/notification-not-found"
+    title = "Notification not found"
     status_code = 404
 
 
@@ -96,6 +99,34 @@ class MatcherTimeout(Problem):
     status_code = 504
 
 
+class MatcherRejected(Problem):
+    type = "/problems/matcher-rejected"
+    title = "Matcher rejected request"
+    status_code = 422
+
+    def __init__(self, status_code: int, detail):
+        super().__init__(detail=str(detail))
+        self.status_code = status_code
+
+
+class EmailNotVerified(Problem):
+    type = "/problems/email-not-verified"
+    title = "Email not verified"
+    status_code = 403
+
+
+class EmailChangePending(Problem):
+    type = "/problems/email-change-pending"
+    title = "Email change already pending"
+    status_code = 409
+
+
+class InvalidVerificationCode(Problem):
+    type = "/problems/invalid-verification-code"
+    title = "Invalid or expired verification code"
+    status_code = 410
+
+
 class InvalidLinkCode(Problem):
     type = "/problems/invalid-link-code"
     title = "Invalid link code"
@@ -108,25 +139,18 @@ class LinkCodeExpired(Problem):
     status_code = 410
 
 
-class MatcherRejected(Problem):
-    type = "/problems/matcher-rejected"
-    title = "Matcher rejected request"
-    status_code = 422
-
-    def __init__(self, status_code: int, detail):
-        super().__init__(detail=str(detail))
-        self.status_code = status_code
+class LinkCodeAlreadyUsed(Problem):
+    type = "/problems/link-code-already-used"
+    title = "Link code already used"
+    status_code = 409
 
 
-class Validation(Problem):
-    type = "/problems/validation"
-    title = "Validation error"
-    status_code = 422
+class IdentityConflict(Problem):
+    type = "/problems/identity-conflict"
+    title = "Identity already linked to another user"
+    status_code = 409
 
-    def __init__(self, errors: list[dict] | None = None, detail: str = ""):
-        super().__init__(detail=detail, errors=errors or [])
-        
-        
+
 async def problem_handler(request: Request, exc: Problem) -> JSONResponse:
     body = {
         "type": exc.type,

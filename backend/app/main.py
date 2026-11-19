@@ -1,22 +1,25 @@
 import json
 import uuid
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .api import (
     analytics, auth, feedback, health, history, me, meta, notifications,
     opportunities, profiles, recommendations, subscriptions,
 )
+from .api import internal_notifications
 from .config import get_settings
 from .errors import Problem, problem_handler
-from starlette.types import ASGIApp, Scope, Receive, Send
+from .infrastructure.matcher_client import MatcherClient
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from .matcher_client import MatcherClient
     app.state.matcher = MatcherClient()
     get_settings().openapi_path.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -29,7 +32,7 @@ async def lifespan(app: FastAPI):
         )
 
 
-app = FastAPI(title="aiesec_match backend", version="1.2", lifespan=lifespan)
+app = FastAPI(title="aiesec_match backend", version="1.4", lifespan=lifespan)
 
 
 class RequestContextMiddleware:
@@ -40,7 +43,6 @@ class RequestContextMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-
         headers = dict(scope.get("headers") or [])
         rid = (headers.get(b"x-request-id") or b"").decode() or str(uuid.uuid4())
         scope.setdefault("state", {})["request_id"] = rid
@@ -57,13 +59,13 @@ class RequestContextMiddleware:
 
 app.add_middleware(RequestContextMiddleware)
 
+
 @app.exception_handler(RequestValidationError)
 async def validation_handler(request: Request, exc: RequestValidationError):
     errors = []
     for e in exc.errors():
         loc = list(e.get("loc", []))
         msg = e.get("msg") or "invalid"
-        # pydantic оборачивает наш ValueError в "Value error, <msg>"
         if msg.startswith("Value error, "):
             msg = msg[len("Value error, "):]
         errors.append({"loc": loc, "msg": msg})
@@ -84,14 +86,18 @@ async def validation_handler(request: Request, exc: RequestValidationError):
 
 app.add_exception_handler(Problem, problem_handler)
 app.add_middleware(
-    CORSMiddleware, allow_origins=["*"], allow_credentials=False,
-    allow_methods=["*"], allow_headers=["*"], expose_headers=["X-Request-ID", "ETag"],
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["X-Request-ID", "ETag"],
 )
 
-
-
-for module in (auth, me, meta, profiles, opportunities, recommendations,
-               feedback, subscriptions, analytics, history, health):
+for module in (
+    auth, me, meta, profiles, opportunities, recommendations,
+    feedback, subscriptions, analytics, history, notifications, health,
+):
     app.include_router(module.router, prefix="/api/v1")
 
-app.include_router(notifications.router, prefix="/internal/v1")
+app.include_router(internal_notifications.router, prefix="/internal/v1")

@@ -1,8 +1,9 @@
+from __future__ import annotations
+
 import httpx
 
-from .config import get_settings
-from .errors import MatcherRejected, MatcherTimeout, MatcherUnavailable
-from fastapi import Request
+from ..config import get_settings
+from ..errors import MatcherRejected, MatcherTimeout, MatcherUnavailable
 
 
 class MatcherClient:
@@ -24,7 +25,6 @@ class MatcherClient:
             raise MatcherUnavailable(str(e)) from e
 
         if r.status_code >= 500:
-            # matcher вернул 500 — не наш клиент виноват, это outage
             raise MatcherUnavailable(f"matcher {r.status_code}: {r.text[:200]}")
 
         if r.status_code >= 400:
@@ -38,7 +38,3 @@ class MatcherClient:
             return r.json()
         except ValueError as e:
             raise MatcherUnavailable("invalid json from matcher") from e
-
-
-def get_matcher(request: Request) -> MatcherClient:
-    return request.app.state.matcher

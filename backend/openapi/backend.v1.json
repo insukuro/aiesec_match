@@ -2,50 +2,9 @@
   "openapi": "3.1.0",
   "info": {
     "title": "aiesec_match backend",
-    "version": "1.2"
+    "version": "1.3"
   },
   "paths": {
-    "/api/v1/auth/anonymous": {
-      "post": {
-        "tags": [
-          "auth"
-        ],
-        "summary": "Anonymous",
-        "operationId": "anonymous_api_v1_auth_anonymous_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AnonymousAuthIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AnonymousAuthOut"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/auth/register": {
       "post": {
         "tags": [
@@ -1117,22 +1076,6 @@
               ],
               "title": "From"
             }
-          },
-          {
-            "name": "to",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "To"
-            }
           }
         ],
         "responses": {
@@ -1140,7 +1083,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsOut"
+                }
               }
             }
           },
@@ -1367,6 +1312,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "format": "uuid",
               "title": "Notification Id"
             }
           }
@@ -1402,51 +1348,50 @@
   },
   "components": {
     "schemas": {
-      "AnonymousAuthIn": {
+      "AnalyticsOut": {
         "properties": {
-          "device_secret": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Device Secret"
-          }
-        },
-        "type": "object",
-        "title": "AnonymousAuthIn"
-      },
-      "AnonymousAuthOut": {
-        "properties": {
-          "access_token": {
-            "type": "string",
-            "title": "Access Token"
+          "profile_completeness": {
+            "type": "object",
+            "title": "Profile Completeness"
           },
-          "expires_in": {
-            "type": "integer",
-            "title": "Expires In"
+          "programme_distribution": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Programme Distribution"
           },
-          "device_secret": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Device Secret"
+          "interests_distribution": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Interests Distribution"
+          },
+          "activity_series": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Activity Series"
+          },
+          "recommendation_statistics": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Recommendation Statistics"
           }
         },
         "type": "object",
         "required": [
-          "access_token",
-          "expires_in"
+          "profile_completeness",
+          "programme_distribution",
+          "interests_distribution",
+          "activity_series",
+          "recommendation_statistics"
         ],
-        "title": "AnonymousAuthOut"
+        "title": "AnalyticsOut"
       },
       "ConsentIn": {
         "properties": {
@@ -1546,10 +1491,6 @@
             "type": "string",
             "title": "User Id"
           },
-          "is_anonymous": {
-            "type": "boolean",
-            "title": "Is Anonymous"
-          },
           "email": {
             "anyOf": [
               {
@@ -1594,7 +1535,6 @@
         "type": "object",
         "required": [
           "user_id",
-          "is_anonymous",
           "has_profile",
           "profile_version",
           "identities",
@@ -2571,11 +2511,6 @@
           "expires_in": {
             "type": "integer",
             "title": "Expires In"
-          },
-          "is_anonymous": {
-            "type": "boolean",
-            "title": "Is Anonymous",
-            "default": false
           }
         },
         "type": "object",

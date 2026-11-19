@@ -1,5 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
+
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,14 +17,14 @@ class Settings(BaseSettings):
     matcher_base_url: str = "http://matcher:8000"
     matcher_timeout_s: float = 3.0
 
-    age_min: int = 16
-    age_max: int = 35
     request_body_max_bytes: int = 64 * 1024
     rate_limit_per_minute: int = 60
     recommendations_per_minute: int = 10
 
     form_schema_path: Path = Path("app/forms/form_schema.v1.yaml")
     openapi_path: Path = Path("openapi/backend.v1.json")
+
+    internal_token: str = "change-me-internal"
 
 
 @lru_cache

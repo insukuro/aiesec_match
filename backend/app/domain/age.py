@@ -11,12 +11,6 @@ def _years_between(birth: date, today: date) -> int:
 
 
 def validate_birth_date(birth: date | None, today: date | None = None) -> None:
-    """Бросает ValueError с кодом 'birth_date_invalid' если:
-       - дата в будущем,
-       - возраст < 18,
-       - возраст > 31 (т.е. строго < 30),
-       - возраст > 120 (защита от опечаток).
-    """
     if birth is None:
         return
     today = today or date.today()
@@ -41,6 +35,6 @@ def age_from_birth(birth: date | None, today: date | None = None) -> int | None:
 AGE_ERROR_MESSAGES = {
     "birth_date_future": "Дата рождения не может быть в будущем",
     "birth_date_too_young": f"Минимальный возраст — {MIN_AGE} лет",
-    "birth_date_too_old": f"Максимальный возраст — {MAX_AGE} лет (до 35)",
+    "birth_date_too_old": f"Максимальный возраст — {MAX_AGE} лет",
     "birth_date_invalid": "Некорректная дата рождения",
 }
