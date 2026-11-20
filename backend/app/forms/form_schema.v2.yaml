@@ -1,4 +1,4 @@
-version: "2"
+version: "3"
 
 steps:
   - id: programmes
@@ -8,6 +8,8 @@ steps:
       - id: programmes
         kind: multi
         label: "Программы"
+        required: true
+        min_selected: 1
         options_source: programmes
         maps_to: programmes
         ui: { widget: cards }
@@ -21,13 +23,34 @@ steps:
         help: "Нужна для проверки возрастных ограничений (18–31 год)."
         required: true
         maps_to: birth_date
-        validation: { min_age: 18, max_age: 31, pattern: "^\\d{4}-\\d{2}-\\d{2}$" }
+        validation:
+          min_age: 18
+          max_age: 31
+          max_date: "today"
+          pattern: "^\\d{4}-\\d{2}-\\d{2}$"
+
+      - id: nationality
+        kind: single
+        label: "Гражданство"
+        required: true
+        options_source: nationality
+        maps_to: nationality
+        ui: { widget: select_search }
 
       - id: city
         kind: text
         label: "Город"
         maps_to: city
         validation: { max_length: 100 }
+        ui: { widget: autocomplete, source: cities }
+
+      - id: gender
+        kind: single
+        label: "Пол"
+        required: false
+        options_source: gender
+        maps_to: gender
+        ui: { widget: segmented }
 
       - id: study_status
         kind: single
@@ -43,7 +66,7 @@ steps:
         validation: { min: 1, max: 6 }
         show_if:
           any:
-            - { field: study_status, op: in, value: ["bachelor", "master"] }
+            - { field: study_status, op: in, value: ["bachelor", "master", "postgraduate"] }
         maps_to: study.course
         ui: { widget: stepper }
 
@@ -53,7 +76,7 @@ steps:
         validation: { max_length: 200 }
         show_if:
           any:
-            - { field: study_status, op: in, value: ["bachelor", "master", "postgraduate"] }
+            - { field: study_status, op: in, value: ["bachelor", "master", "postgraduate", "graduate"] }
         maps_to: study.specialty_text
 
       - id: english_level
@@ -68,11 +91,14 @@ steps:
         kind: multi
         label: "Другие языки"
         options_source: other_languages
+        exclude: ["en"]
         maps_to: other_languages
+        ui: { widget: chips }
 
       - id: abroad_experience
         kind: boolean
         label: "Был(а) за границей (учёба, работа, волонтёрство)"
+        help: "Опыт международных поездок повышает шансы на матч."
         maps_to: abroad_experience
 
   - id: interests
@@ -81,33 +107,37 @@ steps:
       - id: spheres
         kind: multi
         label: "Сферы, которые тебе интересны"
+        required: true
+        min_selected: 1
         options_source: spheres
         show_if:
           any:
             - { field: programmes, op: in, value: ["talent", "teacher"] }
-            - { field: programmes, op: empty }
         maps_to: spheres
+        ui: { widget: cards }
 
       - id: work_experience
         kind: single
         label: "Опыт работы"
+        required: true
         options_source: work_experience
         show_if:
           any:
             - { field: programmes, op: in, value: ["talent", "teacher"] }
-            - { field: programmes, op: empty }
         maps_to: work_experience
         ui: { widget: segmented }
 
       - id: activities
         kind: multi
         label: "Чем хочешь заниматься"
+        required: true
+        min_selected: 1
         options_source: activities
         show_if:
           any:
             - { field: programmes, op: in, value: ["volunteer"] }
-            - { field: programmes, op: empty }
         maps_to: activities
+        ui: { widget: cards }
 
       - id: experience_text
         kind: textarea
@@ -122,12 +152,16 @@ steps:
       - id: duration
         kind: multi
         label: "Желаемая продолжительность"
+        required: true
+        min_selected: 1
         options_source: durations
         maps_to: duration
+        ui: { widget: chips }
 
       - id: start_window
         kind: single
         label: "Когда готов(а) начать"
+        required: true
         options_source: start_window
         maps_to: start_window
         ui: { widget: segmented }
@@ -148,19 +182,19 @@ steps:
       - id: financial_budget
         kind: number
         label: "Максимальный бюджет, €"
-        validation: { min: 0, max: 10000 }
+        validation: { min: 0, max: 10000, step: 50 }
         show_if:
           any:
             - { field: financial_willing, op: eq, value: true }
         maps_to: financial.max_budget_eur
+        ui: { widget: slider }
 
       - id: financial_stipend
         kind: boolean
         label: "Нужна стипендия"
         show_if:
           any:
-            - { field: programmes, op: in, value: ["talent", "teacher"] }
-            - { field: programmes, op: empty }
+            - { field: programmes, op: in, value: ["talent", "teacher", "volunteer"] }
         maps_to: financial.needs_stipend
 
   - id: motivation
@@ -170,10 +204,15 @@ steps:
         kind: textarea
         label: "Почему хочешь поехать?"
         help: "Это увидят только алгоритм и вы сами — текст не попадает в логи."
-        validation: { max_length: 1000 }
+        required: true
+        validation: { min_length: 50, max_length: 1000 }
         maps_to: motivation_text
 
   - id: final
     title: "Проверка"
     description: "Проверьте ответы перед тем, как запустить подбор."
-    fields: []
+    fields:
+      - id: review
+        kind: summary
+        label: "Сводка ответов"
+        ui: { widget: summary }

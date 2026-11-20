@@ -1,335 +1,339 @@
 spheres:
-  # ---------- сферы анкеты (вопрос «Сферы, которые тебе интересны») ----------
+  # ---------- сферы анкеты ----------
   it:
     backgrounds: [10239, 10268, 10238, 11298, 10255, 11297]
-                                                # Computer sciences, Software development and programming,
-                                                # Computer engineering, Systems and Computing Engineering,
-                                                # Mathematics, Statistics
-    skills: [11260, 11180]                      # Software Engineering, Data Analysis
+    skills: [11260, 11180, 11221, 11225]        # + Artificial Intelligence, Cloud Computing
   marketing:
-    backgrounds: [10253, 10265, 10237]          # Marketing, Public relations, Communication & journalism
-    skills: [11186, 11176, 11205, 11193]        # Digital Marketing, Content Marketing, Social Media Management, Market Research
+    backgrounds: [10253, 10265, 10237]
+    skills: [11186, 11176, 11205, 11193, 11203] # + SEO
   sales:
-    backgrounds: [21677]                        # Sales
-    skills: [10161, 11195, 10163]               # Sales, Negotiation, Client servicing
+    backgrounds: [21677]
+    skills: [10161, 11195, 10163, 11200]        # + Relationship Management
   finance:
     backgrounds: [10245, 10224, 10231, 10240, 11277, 11288, 11290]
-                                                # Finance, Accounting, Banking, Economics,
-                                                # Audit, International Trade, Logistics
-    skills: [10160]                             # Financial management
+    skills: [10160, 11202]                      # + Risk Management
   hr:
-    backgrounds: [11286, 10263]                 # Human Resources, Psychology
-    skills: [11191, 11199]                      # Human Resources, Recruiting
+    backgrounds: [11286, 10263]
+    skills: [11191, 11199]                      # Recruiting — см. примечание ниже
   design:
-    backgrounds: [11280, 10247, 11291]          # Design, Graphic design, Media Arts
-                                                # (11287 Industrial Design — мёртвый код, убран)
-    skills: [11210, 11211]                      # UI design, UX design
+    backgrounds: [11280, 10247, 11291]
+    skills: [11210, 11211, 10151, 10150]        # + Photoshop, Illustrator
   engineering:
     backgrounds: [10256, 10242, 10236, 10248, 10234, 10243, 10244, 10225, 10230, 10254, 10269, 22303]
-                                                # Mechanical, Electrical, Civil, Industrial, Chemical,
-                                                # Electronics, Environmental, Aerospace, Automotive,
-                                                # Material, Telecommunication, Food engineering
-    skills: [10169]                             # Computer aided technical design
+    skills: [10169, 10188, 10181]               # + Mechanics, Thermodynamics
   education:
-    backgrounds: [10241, 10251, 11289]          # Education, Linguistics, Languages
-    skills: [10157, 11173]                      # Training, Coaching
+    backgrounds: [10241, 10251, 11289]
+    skills: [10157, 11173, 10162]               # + Language Teaching
   healthcare:
     backgrounds: [10257, 11293, 11284, 11279, 21248]
-                                                # Medicine, Nursing, Health Science, Biomedical Science, Nutrition
-    skills: [10058]                             # First Aid
+    skills: [10058]
   ngo:
-    backgrounds: [11295, 10267, 10249, 22072]   # Social Work, Sociology, International relations, Sustainability
-    skills: [10059, 11119]                      # Community Development, Empowerment of others
+    backgrounds: [11295, 10267, 10249, 22072]
+    skills: [10059, 11119, 11188]               # + Facilitation
   entrepreneurship:
-    backgrounds: [11283]                        # Entrepreneurship
-    skills: []                                  # подходящих skills в каталоге нет
+    backgrounds: [11283]
+    skills: [11156, 11172]                      # Final Cut Pro (медиа), Business Intelligence
 
-  # ---------- активности анкеты (вопрос «Чем хочешь заниматься», в основном GV) ----------
+  # ---------- активности анкеты ----------
   teaching:
-    backgrounds: [10241]                        # Education
-    skills: [10162, 10157]                      # Language Teaching, Training
+    backgrounds: [10241]
+    skills: [10162, 10157]
+  teaching_kids:                                # новый явный кейс (раньше падал в teaching_*)
+    backgrounds: [10241, 10263]                 # + Psychology (детская педагогика)
+    skills: [10162, 11173]
+  teaching_english:                             # новый явный кейс
+    backgrounds: [10241, 10251, 11289]          # + Linguistics, Languages
+    skills: [10162]
   events:
-    backgrounds: []
-    skills: [11187, 10156]                      # Event Planning, Project Management
+    backgrounds: [10237, 10265]                 # + Communication & journalism, PR
+    skills: [11187, 10156, 11194]               # + Media Planning
   ecology:
-    backgrounds: [11282, 10244, 22072]          # Ecology, Environmental engineering, Sustainability
-    skills: [10203]                             # Ecology
+    backgrounds: [11282, 10244, 22072]
+    skills: [10203, 10202]                      # + Waste & Water Management
   community:
-    backgrounds: [11295, 10267]                 # Social Work, Sociology
-    skills: [10059, 11188]                      # Community Development, Facilitation
+    backgrounds: [11295, 10267, 10249]          # + International relations
+    skills: [10059, 11188, 11119]               # + Empowerment of others
   culture:
-    backgrounds: [10229, 11292, 11299, 10237, 10252, 10265]
-                                                # Arts, Music, Theatre, Communication & journalism,
-                                                # Literature, Public relations
-                                                # (11285 History — мёртвый код, убран)
-    skills: [11178]                             # Creativity
+    backgrounds: [10229, 11292, 11299, 10237, 10252, 10265, 11291]  # + Media Arts
+    skills: [11178, 11155, 11157]               # + Filming, Image editing
   sports:
-    backgrounds: [11296]                        # Sports
-    skills: [11173]                             # Coaching
+    backgrounds: [11296, 21248]                 # + Nutrition
+    skills: [11173, 10058]                      # + First Aid
 
-  # ---------- шаблон для преподавательских сфер (GTe) ----------
-  teaching_*:                                   # teaching_kids, teaching_english и любые другие teaching_...
-    backgrounds: [10241]                        # Education
-    skills: [10162]                             # Language Teaching
+  # ---------- шаблон для остальных teaching_* ----------
+  teaching_*:
+    backgrounds: [10241]
+    skills: [10162]
 
-study_levels:            # study.status анкеты -> constant_id уровня учёбы AIESEC
-  school: 10782          # High School
-  bachelor: 10785        # Bachelor
-  master: 10787          # Masters
-  # postgraduate, graduate: кодов в каталоге нет — фильтр Ф5 для них не срабатывает (безопасно)
-  # not_studying намеренно без кода: у кандидата нет уровня, фильтр Ф5 его не режет.
+# ---- study.status -> constant_id уровня учёбы AIESEC ----
+study_levels:
+  school:       10782   # High School
+  bachelor:     10785   # Bachelor
+  master:       10787   # Masters
+  # postgraduate / graduate: кодов уровня в каталоге нет.
+  # Фильтр Ф5 для них не срабатывает (безопасно, кандидат не отсекается).
+  # not_studying: намеренно без кода — фильтр Ф5 не режет.
 
-languages:               # other_languages анкеты (маленькими буквами) -> constant_id языка
-  # en сюда НЕ входит: английский добавляется только по english_level и порогу программы
-  ar: 10006      # Arabic
-  id: 10009      # Bahasa Indonesian
-  bg: 10011      # Bulgarian
-  zh: 10012      # Chinese
-  cmn: 10014     # Chinese, Mandarin
-  fr: 10022      # French
-  de: 10024      # German
-  el: 10025      # Greek
-  hi: 10027      # Hindi
-  hu: 10028      # Hungarian
-  it: 10031      # Italian
-  ja: 10032      # Japanese
-  ko: 10034      # Korean
-  pt: 10041      # Portuguese
-  ro: 10042      # Romanian
-  ru: 10043      # Russian
-  sh: 10045      # Slavic (Bosnian, Serbian, Croatian)
-  es: 10048      # Spanish
-  tr: 10051      # Turkish
-  uk: 10052      # Ukrainian
-  vi: 10054      # Vietnamese
+# ---- other_languages анкеты (lowercase ISO) -> constant_id языка ----
+# en НЕ входит: английский добавляется отдельно по english_level + порогу программы.
+languages:
+  ar: 10006
+  id: 10009
+  bg: 10011
+  zh: 10012
+  cmn: 10014
+  fr: 10022
+  de: 10024
+  el: 10025
+  hi: 10027
+  hu: 10028
+  it: 10031
+  ja: 10032
+  ko: 10034
+  pt: 10041
+  ro: 10042
+  ru: 10043
+  sh: 10045
+  es: 10048
+  tr: 10051
+  uk: 10052
+  vi: 10054
 
-nationalities:           # nationality анкеты (ISO-3166-1 alpha-2, UPPERCASE) -> constant_id
-  AF: 10340   # Afghanistan
-  AL: 10341   # Albania
-  DZ: 10342   # Algeria
-  AS: 10343   # American Samoa
-  AD: 10344   # Andorra
-  AO: 10345   # Angola
-  AI: 10346   # Anguilla
-  AG: 10347   # Antigua and Barbuda
-  AR: 10348   # Argentina
-  AM: 10349   # Armenia
-  AW: 10350   # Aruba
-  AU: 10351   # Australia
-  AT: 10352   # Austria
-  AZ: 10353   # Azerbaijan
-  BS: 10354   # Bahamas
-  BH: 10355   # Bahrain
-  BD: 10356   # Bangladesh
-  BB: 10357   # Barbados
-  BY: 10358   # Belarus
-  BE: 10359   # Belgium
-  BZ: 10360   # Belize
-  BJ: 10361   # Benin
-  BM: 10362   # Bermuda
-  BT: 10363   # Bhutan
-  BO: 10364   # Bolivia
-  BA: 10365   # Bosnia-Herzegovina
-  BW: 10366   # Botswana
-  BR: 10367   # Brazil
-  IO: 10368   # British Indian Ocean Territory
-  BN: 10369   # Brunei Darussalam
-  BG: 10370   # Bulgaria
-  BF: 10371   # Burkina Faso
-  BI: 10372   # Burundi
-  KH: 10373   # Cambodia
-  CM: 10374   # Cameroon
-  CA: 10375   # Canada
-  CV: 10376   # Cabo Verde
-  KY: 10377   # Cayman Islands
-  CF: 10378   # Central African Republic
-  TD: 10379   # Chad
-  CL: 10380   # Chile
-  CN: 10381   # Mainland of China
-  CO: 10382   # Colombia
-  KM: 10383   # Comoros
-  CG: 10384   # Congo
-  CD: 10385   # Congo, The Democratic Republic Of The
-  CK: 10386   # Cook Islands
-  CR: 10387   # Costa Rica
-  CI: 10388   # Cote D'Ivoire
-  HR: 10389   # Croatia
-  CU: 10390   # Cuba
-  CY: 10391   # Cyprus
-  CZ: 10392   # Czech Republic
-  DK: 10393   # Denmark
-  DJ: 10394   # Djibouti
-  DM: 10395   # Dominica
-  DO: 10396   # Dominican Republic
-  TL: 10397   # East Timor
-  EC: 10398   # Ecuador
-  EG: 10399   # Egypt
-  SV: 10400   # El Salvador
-  GQ: 10401   # Equatorial Guinea
-  ER: 10402   # Eritrea
-  EE: 10403   # Estonia
-  ET: 10404   # Ethiopia
-  FK: 10405   # Falkland Islands (Malvinas)
-  FO: 10406   # Faroe Islands
-  FJ: 10407   # Fiji
-  FI: 10408   # Finland
-  FR: 10409   # France
-  GF: 10410   # French Guiana
-  PF: 10411   # French Polynesia
-  GE: 10412   # Georgia
-  GI: 10413   # Gibraltar
-  GD: 10414   # Grenada
-  GP: 10415   # Guadeloupe
-  GU: 10416   # Guam
-  GT: 10417   # Guatemala
-  GN: 10418   # Guinea
-  GW: 10419   # Guinea-Bissau
-  HT: 10420   # Haiti
-  VA: 10421   # Holy See (Vatican City State)
-  HN: 10422   # Honduras
-  HK: 10423   # Hong Kong
-  HU: 10424   # Hungary
-  IR: 10425   # Iran
-  IE: 10426   # Ireland
-  IT: 10427   # Italy
-  KR: 10428   # Korea
-  KP: 10429   # Korea, Democratic Peoples Republic Of
-  KW: 10430   # Kuwait
-  LA: 10431   # Laos  ← дубль с 10489; см. SQL-проверку ниже
-  DE: 10432   # Germany
-  LS: 10433   # Lesotho
-  LI: 10434   # Liechtenstein
-  LT: 10435   # Lithuania
-  LU: 10436   # Luxembourg
-  MO: 10437   # Macau
-  MG: 10438   # Madagascar
-  MW: 10439   # Malawi
-  MV: 10440   # Maldives
-  MR: 10441   # Mauritania
-  MX: 10442   # Mexico
-  MD: 10443   # Moldova
-  MC: 10444   # Monaco
-  MN: 10445   # Mongolia
-  ME: 10446   # Montenegro
-  MS: 10447   # Montserrat
-  NA: 10448   # Namibia
-  NR: 10449   # Nauru
-  AN: 10450   # Netherlands Antilles
-  NZ: 10451   # New Zealand
-  NI: 10452   # Nicaragua
-  NE: 10453   # Niger
-  NG: 10454   # Nigeria
-  NU: 10455   # Niue
-  NO: 10456   # Norway
-  NF: 10457   # Norfolk Island
-  OM: 10458   # Oman
-  PY: 10459   # Paraguay
-  PT: 10460   # Portugal
-  QA: 10461   # Qatar
-  RE: 10462   # Reunion
-  RU: 10463   # Russia
-  RS: 10464   # Serbia
-  SG: 10465   # Singapore
-  SR: 10466   # Suriname
-  SZ: 10467   # Swaziland
-  CH: 10468   # Switzerland
-  TW: 10469   # Taiwan
-  TZ: 10470   # Tanzania
-  TM: 10471   # Turkmenistan
-  TV: 10472   # Tuvalu
-  UM: 10473   # United States Minor Outlying Islands
-  GH: 10474   # Ghana
-  GR: 10475   # Greece
-  GL: 10476   # Greenland
-  GY: 10477   # Guyana
-  IS: 10478   # Iceland
-  IN: 10479   # India
-  ID: 10480   # Indonesia
-  IQ: 10481   # Iraq
-  IL: 10482   # Israel
-  JM: 10483   # Jamaica
-  JO: 10484   # Jordan
-  KE: 10485   # Kenya
-  KZ: 10486   # Kazakhstan
-  KI: 10487   # Kiribati
-  KG: 10488   # Kyrgyzstan
-  # LA: 10489  # Laos People's Democratic Republic — дубль ISO, см. SQL ниже
-  LV: 10490   # Latvia
-  LB: 10491   # Lebanon
-  LR: 10492   # Liberia
-  LY: 10493   # Libyan Arab Jamahiriya
-  MY: 10494   # Malaysia
-  ML: 10495   # Mali
-  MT: 10496   # Malta
-  MH: 10497   # Marshall Islands
-  MQ: 10498   # Martinique
-  MU: 10499   # Mauritius
-  YT: 10500   # Mayotte
-  FM: 10501   # Micronesia, Federated States Of
-  MA: 10502   # Morocco
-  MZ: 10503   # Mozambique
-  MM: 10504   # Myanmar
-  NP: 10505   # Nepal
-  NC: 10506   # New Caledonia
-  PK: 10507   # Pakistan
-  PW: 10508   # Palau
-  PA: 10509   # Panama
-  PG: 10510   # Papua New Guinea
-  PE: 10511   # Peru
-  PN: 10512   # Pitcairn
-  PL: 10513   # Poland
-  PR: 10514   # Puerto Rico
-  MK: 10515   # Republic Of Macedonia
-  RO: 10516   # Romania
-  RW: 10517   # Rwanda
-  SH: 10518   # Saint Helena
-  KN: 10519   # Saint Kitts And Nevis
-  LC: 10520   # Saint Lucia
-  PM: 10521   # Saint Pierre And Miquelon
-  VC: 10522   # Saint Vincent And The Grenadines
-  WS: 10523   # Samoa
-  SM: 10524   # San Marino
-  SA: 10525   # Saudi Arabia
-  SN: 10526   # Senegal
-  SC: 10527   # Seychelles
-  SL: 10528   # Sierra Leone
-  SK: 10529   # Slovakia
-  SI: 10530   # Slovenia
-  SB: 10531   # Solomon Islands
-  SO: 10532   # Somalia
-  ZA: 10533   # South Africa
-  ES: 10534   # Spain
-  LK: 10535   # Sri Lanka
-  SD: 10536   # Sudan
-  SE: 10537   # Sweden
-  SY: 10538   # Syrian Arab Republic
-  TJ: 10539   # Tajikistan
-  TH: 10540   # Thailand
-  NL: 10541   # The Netherlands
-  PH: 10542   # The Philippines
-  TG: 10543   # Togo
-  TO: 10544   # Tonga
-  TT: 10545   # Trinidad And Tobago
-  TN: 10546   # Tunisia
-  TR: 10547   # Turkey
-  UG: 10548   # Uganda
-  UA: 10549   # Ukraine
-  AE: 10550   # United Arab Emirates
-  GB: 10551   # United Kingdom
-  US: 10552   # United States
-  GA: 10553   # Gabon
-  GM: 10554   # Gambia
-  JP: 10555   # Japan
-  ST: 10556   # Sao Tome And Principe
-  UY: 10557   # Uruguay
-  UZ: 10558   # Uzbekistan
-  VU: 10559   # Vanuatu
-  VE: 10560   # Venezuela
-  VN: 10561   # Vietnam
-  VG: 10562   # Virgin Islands, British
-  VI: 10563   # Virgin Islands, U.S.
-  EH: 10564   # Western Sahara
-  YE: 10565   # Yemen
-  ZM: 10566   # Zambia
-  ZW: 10567   # Zimbabwe
-  PS: 11322   # Palestine
+# ---- nationality анкеты (ISO-3166-1 alpha-2, UPPERCASE) -> constant_id ----
+nationalities:
+  AF: 10340
+  AL: 10341
+  DZ: 10342
+  AS: 10343
+  AD: 10344
+  AO: 10345
+  AI: 10346
+  AG: 10347
+  AR: 10348
+  AM: 10349
+  AW: 10350
+  AU: 10351
+  AT: 10352
+  AZ: 10353
+  BS: 10354
+  BH: 10355
+  BD: 10356
+  BB: 10357
+  BY: 10358
+  BE: 10359
+  BZ: 10360
+  BJ: 10361
+  BM: 10362
+  BT: 10363
+  BO: 10364
+  BA: 10365
+  BW: 10366
+  BR: 10367
+  IO: 10368
+  BN: 10369
+  BG: 10370
+  BF: 10371
+  BI: 10372
+  KH: 10373
+  CM: 10374
+  CA: 10375
+  CV: 10376
+  KY: 10377
+  CF: 10378
+  TD: 10379
+  CL: 10380
+  CN: 10381
+  CO: 10382
+  KM: 10383
+  CG: 10384
+  CD: 10385
+  CK: 10386
+  CR: 10387
+  CI: 10388
+  HR: 10389
+  CU: 10390
+  CY: 10391
+  CZ: 10392
+  DK: 10393
+  DJ: 10394
+  DM: 10395
+  DO: 10396
+  TL: 10397
+  EC: 10398
+  EG: 10399
+  SV: 10400
+  GQ: 10401
+  ER: 10402
+  EE: 10403
+  ET: 10404
+  FK: 10405
+  FO: 10406
+  FJ: 10407
+  FI: 10408
+  FR: 10409
+  GF: 10410
+  PF: 10411
+  GE: 10412
+  GI: 10413
+  GD: 10414
+  GP: 10415
+  GU: 10416
+  GT: 10417
+  GN: 10418
+  GW: 10419
+  HT: 10420
+  VA: 10421
+  HN: 10422
+  HK: 10423
+  HU: 10424
+  IR: 10425
+  IE: 10426
+  IT: 10427
+  KR: 10428
+  KP: 10429
+  KW: 10430
+  LA: 10431     # ← дубль с 10489 (Laos / Laos People's Democratic Republic); оставлен первый
+  DE: 10432
+  LS: 10433
+  LI: 10434
+  LT: 10435
+  LU: 10436
+  MO: 10437
+  MG: 10438
+  MW: 10439
+  MV: 10440
+  MR: 10441
+  MX: 10442
+  MD: 10443
+  MC: 10444
+  MN: 10445
+  ME: 10446
+  MS: 10447
+  NA: 10448
+  NR: 10449
+  AN: 10450
+  NZ: 10451
+  NI: 10452
+  NE: 10453
+  NG: 10454
+  NU: 10455
+  NO: 10456
+  NF: 10457
+  OM: 10458
+  PY: 10459
+  PT: 10460
+  QA: 10461
+  RE: 10462
+  RU: 10463
+  RS: 10464
+  SG: 10465
+  SR: 10466
+  SZ: 10467
+  CH: 10468
+  TW: 10469
+  TZ: 10470
+  TM: 10471
+  TV: 10472
+  UM: 10473
+  GH: 10474
+  GR: 10475
+  GL: 10476
+  GY: 10477
+  IS: 10478
+  IN: 10479
+  ID: 10480
+  IQ: 10481
+  IL: 10482
+  JM: 10483
+  JO: 10484
+  KE: 10485
+  KZ: 10486
+  KI: 10487
+  KG: 10488
+  # LA: 10489   # Laos People's Democratic Republic — дубль ISO
+  LV: 10490
+  LB: 10491
+  LR: 10492
+  LY: 10493
+  MY: 10494
+  ML: 10495
+  MT: 10496
+  MH: 10497
+  MQ: 10498
+  MU: 10499
+  YT: 10500
+  FM: 10501
+  MA: 10502
+  MZ: 10503
+  MM: 10504
+  NP: 10505
+  NC: 10506
+  PK: 10507
+  PW: 10508
+  PA: 10509
+  PG: 10510
+  PE: 10511
+  PN: 10512
+  PL: 10513
+  PR: 10514
+  MK: 10515
+  RO: 10516
+  RW: 10517
+  SH: 10518
+  KN: 10519
+  LC: 10520
+  PM: 10521
+  VC: 10522
+  WS: 10523
+  SM: 10524
+  SA: 10525
+  SN: 10526
+  SC: 10527
+  SL: 10528
+  SK: 10529
+  SI: 10530
+  SB: 10531
+  SO: 10532
+  ZA: 10533
+  ES: 10534
+  LK: 10535
+  SD: 10536
+  SE: 10537
+  SY: 10538
+  TJ: 10539
+  TH: 10540
+  NL: 10541
+  PH: 10542
+  TG: 10543
+  TO: 10544
+  TT: 10545
+  TN: 10546
+  TR: 10547
+  UG: 10548
+  UA: 10549
+  AE: 10550
+  GB: 10551
+  US: 10552
+  GA: 10553
+  GM: 10554
+  JP: 10555
+  ST: 10556
+  UY: 10557
+  UZ: 10558
+  VU: 10559
+  VE: 10560
+  VN: 10561
+  VG: 10562
+  VI: 10563
+  EH: 10564
+  YE: 10565
+  ZM: 10566
+  ZW: 10567
+  PS: 11322
+
+# ---- обратный индекс: background -> сфера (для алгоритма подбора) ----
+# Генерируется из spheres.* автоматически; пример:
+# background_to_spheres:
+#   10239: [it]
+#   10253: [marketing]
+#   10241: [education, teaching, teaching_kids, teaching_english, teaching_*]
