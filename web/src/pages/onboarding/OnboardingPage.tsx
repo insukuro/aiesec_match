@@ -9,29 +9,29 @@ import { ErrorBanner } from "../../shared/ui/ErrorBanner";
 import { ROUTES } from "../../app/routes";
 import { useToast } from "../../shared/ui/Toast";
 import { errorMessage } from "../../shared/lib/errors";
-import { getPath } from "../../shared/lib/get";
 import { useAuth } from "../../features/auth/AuthContext";
+import { ApiError } from "../../shared/api/client";
+import { ConsentSettings } from "../../features/consent/ConsentSettings";
 
 export function OnboardingPage() {
   const { step } = useParams();
   const nav = useNavigate();
   const qc = useQueryClient();
   const toast = useToast();
-  const { state, isGuest, refreshMe } = useAuth();
+  const { state, me, refreshMe } = useAuth();
 
   useEffect(() => { document.title = "Анкета — AIESEC Match"; }, []);
 
   useEffect(() => {
     if (state.status === "unknown") nav(ROUTES.welcome, { replace: true });
-    if (isGuest) nav(ROUTES.login, { replace: true });
-  }, [state.status, isGuest, nav]);
+  }, [state.status, nav]);
 
   const idx = Number(step ?? "0");
   const schemaQ = useQuery({ queryKey: qk.formSchema, queryFn: fetchers.formSchema, staleTime: 5 * 60_000 });
   const optionsQ = useQuery({ queryKey: qk.formOptions, queryFn: fetchers.formOptions, staleTime: 5 * 60_000 });
+  const consentsQ = useQuery({ queryKey: qk.consents, queryFn: fetchers.consents, staleTime: 60_000 });
   const profileQ = useQuery({
     queryKey: qk.profile, queryFn: fetchers.profile, retry: 0,
-    enabled: !isGuest,
   });
 
   const saveProfile = useMutation({ mutationFn: (body: unknown) => api.putProfile(body) });
@@ -41,31 +41,45 @@ export function OnboardingPage() {
     [profileQ.data],
   );
 
+  if (consentsQ.error) {
+    return <main className="page"><ErrorBanner error={consentsQ.error} onRetry={() => consentsQ.refetch()} /></main>;
+  }
+  if (!consentsQ.data || !me) return <main className="page"><Skeleton lines={6} /></main>;
+  const needsRequiredConsent = consentsQ.data.consents.some((document) =>
+    document.required && !me.consents.some(
+      (consent) => consent.kind === document.kind && consent.version === document.version,
+    ),
+  );
+  if (needsRequiredConsent) {
+    return (
+      <main className="page">
+        <h1 className="page__title">Перед продолжением примите актуальные согласия</h1>
+        <ConsentSettings acceptedConsents={me.consents} refreshMe={refreshMe} />
+      </main>
+    );
+  }
   if (schemaQ.error) return <main className="page"><ErrorBanner error={schemaQ.error} onRetry={() => schemaQ.refetch()} /></main>;
-  if (!schemaQ.data || !optionsQ.data) return <main className="page"><Skeleton lines={6} /></main>;
-  const schema = schemaQ.data;
-  if (idx >= schema.steps.length) { nav(ROUTES.results, { replace: true }); return null; }
-  const current = schema.steps[idx]!;
+  const profileNotFound = profileQ.error instanceof ApiError && profileQ.error.status === 404;
+  if (profileQ.error && !profileNotFound) {
+    return <main className="page"><ErrorBanner error={profileQ.error} onRetry={() => profileQ.refetch()} /></main>;
+  }
+  if (!schemaQ.data || !optionsQ.data || profileQ.isLoading) {
+    return <main className="page"><Skeleton lines={6} /></main>;
+  }
+  const steps = schemaQ.data.steps;
+  if (idx >= steps.length) { nav(ROUTES.dashboard, { replace: true }); return null; }
+  const current = steps[idx]!;
 
   const onNext = async (values: Record<string, unknown>) => {
     try {
-      if (current.id === "consent") {
-        const pd = getPath(values, "consent.pd_processing") === true;
-        if (!pd) { toast.show("Нужно согласие на обработку данных", "error"); return; }
-        await api.postConsent("pd_processing", "1.0");
-        if (getPath(values, "consent.marketing") === true) await api.postConsent("marketing", "1.0");
+      await saveProfile.mutateAsync(values);
+      await qc.invalidateQueries({ queryKey: qk.profile });
+      if (current.id === "final") {
         await refreshMe();
-      } else if (current.id === "final") {
-        await api.createRecommendations(crypto.randomUUID(), { mode: "sync", limit_per_programme: 10 });
-        await qc.invalidateQueries({ queryKey: qk.run });
-        toast.show("Подборка готова", "success");
-        nav(ROUTES.results);
+        nav(ROUTES.dashboard, { replace: true });
         return;
-      } else {
-        await saveProfile.mutateAsync(values);
-        await qc.invalidateQueries({ queryKey: qk.profile });
       }
-      if (idx + 1 < schema.steps.length) nav(ROUTES.onboarding(idx + 1));
+      if (idx + 1 < steps.length) nav(ROUTES.onboarding(idx + 1));
     } catch (e) {
       toast.show(errorMessage(e), "error");
     }
@@ -73,7 +87,7 @@ export function OnboardingPage() {
 
   return (
     <main className="page">
-      <div className="form__progress">Шаг {idx + 1} из {schema.steps.length}</div>
+      <div className="form__progress">Шаг {idx + 1} из {steps.length}</div>
       <FormRenderer
         step={current}
         options={optionsQ.data}

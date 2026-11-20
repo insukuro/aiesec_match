@@ -64,7 +64,13 @@ def decode_token(raw: str) -> uuid.UUID:
         )
     except jwt.PyJWTError as e:
         raise Unauthorized(str(e)) from e
-    return uuid.UUID(payload["sub"])
+    subject = payload.get("sub")
+    if not isinstance(subject, str):
+        raise Unauthorized()
+    try:
+        return uuid.UUID(subject)
+    except ValueError as e:
+        raise Unauthorized() from e
 
 
 def _verification_code_hash(code: str) -> str:

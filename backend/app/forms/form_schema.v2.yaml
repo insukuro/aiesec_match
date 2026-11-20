@@ -1,21 +1,6 @@
-version: "1"
+version: "2"
 
 steps:
-  - id: consent
-    title: "Согласие"
-    description: "Прежде чем начать, подтвердите согласие на обработку персональных данных."
-    fields:
-      - id: pd_processing
-        kind: boolean
-        label: "Я согласен(на) на обработку персональных данных"
-        required: true
-        maps_to: consent.pd_processing
-      - id: marketing
-        kind: boolean
-        label: "Хочу получать новости и предложения AIESEC"
-        required: false
-        maps_to: consent.marketing
-
   - id: programmes
     title: "Что ищешь?"
     description: "Можно выбрать несколько направлений или доверить выбор алгоритму."
@@ -33,10 +18,10 @@ steps:
       - id: birth_date
         kind: date
         label: "Дата рождения"
-        help: "Нужна для проверки возрастных ограничений (16–34 года)."
+        help: "Нужна для проверки возрастных ограничений (18–31 год)."
         required: true
         maps_to: birth_date
-        validation: { min_age: 16, max_age: 34, pattern: "^\\d{4}-\\d{2}-\\d{2}$" }
+        validation: { min_age: 18, max_age: 31, pattern: "^\\d{4}-\\d{2}-\\d{2}$" }
 
       - id: city
         kind: text

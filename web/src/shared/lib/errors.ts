@@ -13,7 +13,6 @@ export function errorMessage(err: unknown): string {
   switch (p.type) {
     case "/problems/validation": return "Проверьте поля формы";
     case "/problems/unauthorized": return "Нужно войти заново";
-    case "/problems/forbidden-guest": return "Доступно только в аккаунте";
     case "/problems/email-taken": return "Этот email уже зарегистрирован";
     case "/problems/bad-credentials": return "Неверный email или пароль";
     case "/problems/consent-required": return "Требуется согласие на обработку данных";

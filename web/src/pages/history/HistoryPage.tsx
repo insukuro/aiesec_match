@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "../../shared/api/endpoints";
 import { qk } from "../../shared/api/queries";
 import { HistoryEventItem } from "../../entities/history/HistoryEventItem";
@@ -11,22 +11,20 @@ import { Skeleton } from "../../shared/ui/Skeleton";
 import { Button } from "../../shared/ui/Button";
 import { Chip } from "../../shared/ui/Chip";
 import type { HistoryType } from "../../shared/api/types";
-import { useAuth } from "../../features/auth/AuthContext";
-import { GuestBanner } from "../../widgets/GuestBanner";
 import { ROUTES } from "../../app/routes";
 
 const TYPES: Array<{ id: HistoryType | "all"; label: string }> = [
   { id: "all", label: "Все события" },
-  { id: "profile_updated", label: "Профиль" },
   { id: "run_finished", label: "Подбор" },
-  { id: "signal_liked", label: "Отметки" },
+  { id: "signal_opened", label: "Просмотры" },
+  { id: "signal_liked", label: "Понравилось" },
+  { id: "signal_disliked", label: "Не понравилось" },
+  { id: "signal_hidden", label: "Скрыто" },
   { id: "signal_applied", label: "Отклики" },
-  { id: "opportunity_viewed", label: "Просмотры" },
 ];
 
 export function HistoryPage() {
   const nav = useNavigate();
-  const { isGuest } = useAuth();
   const [type, setType] = useState<HistoryType | "all">("all");
   const [period, setPeriod] = useState<Period>("30d");
   const [from, setFrom] = useState<string | undefined>();
@@ -40,26 +38,45 @@ export function HistoryPage() {
   const q = useQuery({
     queryKey: qk.history(params as Record<string, unknown>),
     queryFn: () => api.getHistory(params as Record<string, string | number | undefined>),
-    enabled: !isGuest,
   });
-
-  if (isGuest) {
-    return (
-      <main className="page">
-        <h1 className="page__title">История</h1>
-        <GuestBanner />
-        <EmptyState
-          title="Создайте аккаунт"
-          description="История доступна только в аккаунте."
-          action={<Button onClick={() => nav(ROUTES.register)}>Создать аккаунт</Button>}
-        />
-      </main>
-    );
-  }
+  const runsQ = useQuery({
+    queryKey: qk.runs({ limit: 5, offset: 0 }),
+    queryFn: () => api.listRecommendationRuns({ limit: 5 }),
+  });
 
   return (
     <main className="page">
       <h1 className="page__title">История</h1>
+
+      <section className="section">
+        <h2 className="section__title">Последние подборы</h2>
+        {runsQ.isLoading && <Skeleton lines={2} />}
+        {runsQ.error && <ErrorBanner error={runsQ.error} onRetry={() => runsQ.refetch()} />}
+        {runsQ.data?.items.length === 0 && <p className="muted">Подборок пока нет.</p>}
+        {runsQ.data && runsQ.data.items.length > 0 && (
+          <ul className="stack" style={{ listStyle: "none", padding: 0 }}>
+            {runsQ.data.items.map((run) => (
+              <li className="ui-card row" key={run.run_id} style={{ justifyContent: "space-between" }}>
+                <div>
+                  <strong>{run.state === "succeeded" ? "Подбор завершён" : run.state === "failed" ? "Ошибка подбора" : "Подбор выполняется"}</strong>
+                  <div className="muted">
+                    {new Date(run.created_at).toLocaleString("ru-RU")}
+                    {run.total_candidates != null && ` · кандидатов: ${run.total_candidates}`}
+                  </div>
+                </div>
+                {run.state === "succeeded" && (
+                  <Button
+                    variant="outline"
+                    onClick={() => nav(`${ROUTES.results}?run=${encodeURIComponent(run.run_id)}`)}
+                  >
+                    Открыть
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       <div className="row" style={{ marginBottom: "var(--space-3)" }}>
         {TYPES.map((t) => (

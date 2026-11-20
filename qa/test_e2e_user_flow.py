@@ -18,7 +18,7 @@ def ids(run: dict) -> list[int]:
 def test_register_login_me(http):
     u = User(http, with_consent=False)
     me = u.get("/me").json()
-    assert me["email"] == u.email and me["is_anonymous"] is False and me["has_profile"] is False
+    assert me["email"] == u.email and me["has_profile"] is False
     r = http.post(f"{API}/auth/login", json={"email": u.email.upper(), "password": u.password})
     assert r.status_code == 200 and r.json()["access_token"]           # почта без учёта регистра
     u.delete("/me")
@@ -30,7 +30,7 @@ def test_profile_requires_consent_then_saves(bare_user):
     r = bare_user.put("/profiles/me", json=PROFILE)
     assert r.status_code == 200
     body = r.json()
-    assert body["profile_version"] == 1 and body["age_years"] >= 16 and 0 < body["completeness"] <= 1
+    assert body["profile_version"] == 1 and body["age_years"] >= 18 and 0 < body["completeness"] <= 1
     assert r.headers["ETag"] == '"1"'
     assert bare_user.get("/profiles/me").json()["spheres"] == ["marketing", "sales"]
 

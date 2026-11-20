@@ -70,6 +70,7 @@ services:
       AIESEC_MATCHER_BASE_URL: ${MATCHER_BASE_URL:-http://matcher:8000}
       AIESEC_JWT_SECRET: ${JWT_SECRET:-dev-jwt}
       AIESEC_PROFILE_HMAC_SECRET: ${PROFILE_HMAC_SECRET:-dev-hmac}
+      AIESEC_DEV_MODE: "true"
     volumes:
       - ./.env:/srv/.env:ro
       - ./backend/app:/srv/app

@@ -3,7 +3,7 @@ import httpx
 import pytest
 
 from app.errors import MatcherRejected, MatcherTimeout, MatcherUnavailable
-from app.matcher_client import MatcherClient
+from app.infrastructure.matcher_client import MatcherClient
 
 
 def _client_with(handler) -> MatcherClient:

@@ -8,7 +8,7 @@ from ..application.deps import current_user_id
 from ..application.link_code_service import LinkCodeService
 from ..application.me_service import MeService
 from ..db import get_session
-from ..schemas import ConsentIn, LinkCodeConfirmIn, LinkCodeOut, MeOut
+from ..schemas import ConsentIn, LinkCodeOut, MeOut
 
 router = APIRouter(prefix="/me", tags=["me"])
 
@@ -53,12 +53,3 @@ async def create_link_code(
     session: AsyncSession = Depends(get_session),
 ):
     return await LinkCodeService(session).create_for_user(user_id)
-
-
-@router.post("/link-codes/confirm", status_code=204)
-async def confirm_link_code(
-    body: LinkCodeConfirmIn,
-    user_id: uuid.UUID = Depends(current_user_id),
-    session: AsyncSession = Depends(get_session),
-):
-    await LinkCodeService(session).confirm_for_user(user_id, body.code)

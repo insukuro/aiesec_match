@@ -19,7 +19,6 @@ describe("errorMessage", () => {
   it.each([
     ["/problems/validation", "Проверьте поля формы"],
     ["/problems/unauthorized", "Нужно войти заново"],
-    ["/problems/forbidden-guest", "Доступно только в аккаунте"],
     ["/problems/email-taken", "Этот email уже зарегистрирован"],
     ["/problems/bad-credentials", "Неверный email или пароль"],
     ["/problems/consent-required", "Требуется согласие на обработку данных"],

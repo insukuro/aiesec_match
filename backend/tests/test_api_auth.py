@@ -1,52 +1,12 @@
 import pytest
 import uuid
 
+from app.config import get_settings
+
 @pytest.mark.asyncio
-async def test_anonymous_creates_guest(client):
+async def test_anonymous_auth_endpoint_is_removed(client):
     r = await client.post("/api/v1/auth/anonymous", json={})
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["access_token"]
-    assert body["expires_in"] > 0
-    assert body["device_secret"]
-    assert body["device_secret"] != ""
-
-
-@pytest.mark.asyncio
-async def test_anonymous_same_secret_returns_same_user(client):
-    r1 = await client.post("/api/v1/auth/anonymous", json={})
-    secret = r1.json()["device_secret"]
-
-    r2 = await client.post("/api/v1/auth/anonymous", json={"device_secret": secret})
-    assert r2.status_code == 200
-    # повторный вход с тем же секретом — новый секрет не выдаётся
-    assert r2.json()["device_secret"] is None
-
-    # токены указывают на одного и того же юзера
-    h1 = {"Authorization": f"Bearer {r1.json()['access_token']}"}
-    h2 = {"Authorization": f"Bearer {r2.json()['access_token']}"}
-    me1 = await client.get("/api/v1/me", headers=h1)
-    me2 = await client.get("/api/v1/me", headers=h2)
-    assert me1.json()["user_id"] == me2.json()["user_id"]
-    assert me1.json()["is_anonymous"] is True
-
-
-@pytest.mark.asyncio
-async def test_anonymous_bad_secret_creates_new_user(client):
-    r1 = await client.post("/api/v1/auth/anonymous", json={})
-    uid1 = (await client.get(
-        "/api/v1/me",
-        headers={"Authorization": f"Bearer {r1.json()['access_token']}"},
-    )).json()["user_id"]
-
-    r2 = await client.post("/api/v1/auth/anonymous", json={"device_secret": "garbage"})
-    assert r2.status_code == 200
-    assert r2.json()["device_secret"]  # новый гость → новый секрет
-    uid2 = (await client.get(
-        "/api/v1/me",
-        headers={"Authorization": f"Bearer {r2.json()['access_token']}"},
-    )).json()["user_id"]
-    assert uid1 != uid2
+    assert r.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -57,8 +17,14 @@ async def test_register_returns_token(client):
     )
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["is_anonymous"] is False
     assert body["access_token"]
+    assert "is_anonymous" not in body
+    me = await client.get(
+        "/api/v1/me",
+        headers={"Authorization": f"Bearer {body['access_token']}"},
+    )
+    assert me.status_code == 200
+    assert "is_anonymous" not in me.json()
 
 
 @pytest.mark.asyncio
@@ -103,7 +69,7 @@ async def test_login_ok(client):
         json={"email": email, "password": "Passw0rd!"},
     )
     assert r.status_code == 200
-    assert r.json()["is_anonymous"] is False
+    assert r.json()["access_token"]
 
 
 @pytest.mark.asyncio
@@ -219,3 +185,76 @@ async def test_me_without_token_is_unauthorized(client):
 async def test_me_with_garbage_token_is_unauthorized(client):
     r = await client.get("/api/v1/me", headers={"Authorization": "Bearer garbage"})
     assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_deleted_account_token_is_unauthorized(client):
+    email = f"deleted{uuid.uuid4().hex[:8]}@test.io"
+    registered = await client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "Passw0rd!"},
+    )
+    headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+    deleted = await client.delete("/api/v1/me", headers=headers)
+    assert deleted.status_code == 204
+
+    r = await client.get("/api/v1/history", headers=headers)
+    assert r.status_code == 401
+    assert r.json()["type"] == "/problems/unauthorized"
+
+
+@pytest.mark.asyncio
+async def test_email_change_requires_delivery_configuration(client, monkeypatch):
+    monkeypatch.setenv("AIESEC_DEV_MODE", "false")
+    get_settings.cache_clear()
+    try:
+        email = f"mail{uuid.uuid4().hex[:8]}@test.io"
+        registered = await client.post(
+            "/api/v1/auth/register",
+            json={"email": email, "password": "Passw0rd!"},
+        )
+        headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+        r = await client.post(
+            "/api/v1/auth/change-email",
+            json={"new_email": f"next{uuid.uuid4().hex[:8]}@test.io", "password": "Passw0rd!"},
+            headers=headers,
+        )
+        assert r.status_code == 503
+        assert r.json()["type"] == "/problems/email-delivery-unavailable"
+        assert "dev_code" not in r.json()
+    finally:
+        get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_email_change_development_verification_flow(client, monkeypatch):
+    monkeypatch.setenv("AIESEC_DEV_MODE", "true")
+    get_settings.cache_clear()
+    try:
+        email = f"old{uuid.uuid4().hex[:8]}@test.io"
+        next_email = f"new{uuid.uuid4().hex[:8]}@test.io"
+        registered = await client.post(
+            "/api/v1/auth/register",
+            json={"email": email, "password": "Passw0rd!"},
+        )
+        headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+        requested = await client.post(
+            "/api/v1/auth/change-email",
+            json={"new_email": next_email, "password": "Passw0rd!"},
+            headers=headers,
+        )
+        assert requested.status_code == 200
+        code = requested.json()["dev_code"]
+
+        verified = await client.post(
+            "/api/v1/auth/verify-email",
+            params={"new_email": next_email},
+            json={"code": code},
+            headers=headers,
+        )
+        assert verified.status_code == 204
+        me = await client.get("/api/v1/me", headers=headers)
+        assert me.json()["email"] == next_email
+        assert me.json()["email_verified"] is True
+    finally:
+        get_settings.cache_clear()

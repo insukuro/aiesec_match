@@ -3,7 +3,7 @@ from datetime import date
 
 import pytest
 
-from app.age import (
+from app.domain.age import (
     AGE_ERROR_MESSAGES,
     MAX_AGE,
     MIN_AGE,

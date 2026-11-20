@@ -5,7 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..application.auth_service import AuthService
 from ..application.deps import current_user_id
+from ..config import get_settings
 from ..db import get_session
+from ..errors import EmailDeliveryUnavailable
 from ..schemas import (
     ChangeEmailIn, ChangePasswordIn, LoginIn, RegisterIn, TelegramAuthIn,
     TokenOut, VerifyEmailIn,
@@ -49,11 +51,14 @@ async def request_email_change(
     user_id: uuid.UUID = Depends(current_user_id),
     session: AsyncSession = Depends(get_session),
 ):
+    if not get_settings().dev_mode:
+        raise EmailDeliveryUnavailable(
+            "Email change requires an email delivery provider.",
+        )
     code = await AuthService(session).request_email_change(
         user_id, body.new_email, body.password,
     )
-    # В проде код уходит письмом. В dev возвращаем в ответе (флаг AIESEC_DEV).
-    return {"status": "verification_sent", "dev_code": code}
+    return {"status": "verification_required", "dev_code": code}
 
 
 @router.post("/verify-email", status_code=204)

@@ -1,7 +1,7 @@
 # backend/tests/test_completeness.py
 import pytest
 
-from app.completeness import CHECK_FIELDS, completeness, missing_for_match
+from app.domain.completeness import CHECK_FIELDS, completeness, missing_for_match
 
 
 FULL = {

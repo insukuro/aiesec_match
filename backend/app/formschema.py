@@ -8,3 +8,8 @@ from .config import get_settings
 def load_form_schema() -> dict:
     path: Path = get_settings().form_schema_path
     return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def load_consent_schema() -> dict:
+    path: Path = get_settings().form_schema_path.with_name("consents.v1.yaml")
+    return yaml.safe_load(path.read_text(encoding="utf-8"))

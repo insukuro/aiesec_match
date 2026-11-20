@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://backend_writer:backend@postgres:5432/aiesec_match"
     jwt_secret: str = "change-me"
     jwt_ttl_seconds: int = 24 * 3600
+    dev_mode: bool = False
     telegram_bot_token: str = ""
     profile_hmac_secret: str = "change-me-hmac"
 
@@ -21,7 +22,7 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = 60
     recommendations_per_minute: int = 10
 
-    form_schema_path: Path = Path("app/forms/form_schema.v1.yaml")
+    form_schema_path: Path = Path("app/forms/form_schema.v2.yaml")
     openapi_path: Path = Path("openapi/backend.v1.json")
 
     internal_token: str = "change-me-internal"

@@ -8,15 +8,14 @@ from urllib.parse import urlencode
 import jwt
 import pytest
 
-from app.auth import (
-    hash_device_secret,
+from app.application.auth_service import (
     hash_password,
     issue_token,
     verify_password,
-    verify_telegram_init_data,
 )
 from app.config import get_settings
 from app.errors import Unauthorized
+from app.infrastructure.telegram_adapter import verify_init_data
 
 
 @pytest.mark.asyncio
@@ -30,10 +29,6 @@ async def test_hash_and_verify_password_roundtrip():
 @pytest.mark.asyncio
 async def test_verify_password_bad_hash_no_raise():
     assert await verify_password("x", "not-a-bcrypt-hash") is False
-
-
-def test_hash_device_secret_stable():
-    assert hash_device_secret("abc") == hashlib.sha256(b"abc").hexdigest()
 
 
 def test_issue_token_roundtrip():
@@ -66,7 +61,7 @@ def test_telegram_init_data_ok():
     token = "123:ABC"
     user = {"id": 42, "first_name": "Test"}
     data = _make_init_data(token, user)
-    out = verify_telegram_init_data(data, token)
+    out = verify_init_data(data, token)
     assert out["id"] == 42
 
 
@@ -74,7 +69,7 @@ def test_telegram_bad_signature():
     token = "123:ABC"
     data = _make_init_data(token, {"id": 42})
     with pytest.raises(Unauthorized):
-        verify_telegram_init_data(data, "other:token")
+        verify_init_data(data, "other:token")
 
 
 def test_telegram_expired():
@@ -82,4 +77,4 @@ def test_telegram_expired():
     old = int(time.time()) - 25 * 3600
     data = _make_init_data(token, {"id": 42}, auth_date=old)
     with pytest.raises(Unauthorized, match="expired"):
-        verify_telegram_init_data(data, token)
+        verify_init_data(data, token)

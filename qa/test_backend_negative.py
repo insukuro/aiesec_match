@@ -36,13 +36,8 @@ def test_no_token_is_401_problem_json(http, path):
     assert r.headers["content-type"].startswith("application/problem+json")
     assert r.json()["type"] == "/problems/unauthorized"
 
-def test_guest_cannot_use_profile_and_matching(http):
-    tok = http.post(f"{API}/auth/anonymous", json={}).json()["access_token"]
-    h = {"Authorization": f"Bearer {tok}"}
-    assert http.get(f"{API}/me", headers=h).json()["is_anonymous"] is True
-    for method, path in [("GET", "/profiles/me"), ("PUT", "/profiles/me"), ("GET", "/history")]:
-        r = http.request(method, f"{API}{path}", headers=h, json={})
-        assert r.status_code == 403 and r.json()["type"] == "/problems/forbidden-guest"
+def test_anonymous_auth_endpoint_is_removed(http):
+    assert http.post(f"{API}/auth/anonymous", json={}).status_code == 404
 
 def test_user_cannot_read_foreign_run(http, user, catalog):
     run_id = user.recommend().json()["run_id"]
@@ -84,12 +79,12 @@ def test_wrong_password_and_unknown_user_look_the_same(http):
     assert a.json()["title"] == b.json()["title"]              # нельзя угадать, есть ли такой пользователь
 
 
-# ---------- анкета: границы возраста (16..34 включительно) ----------
+# ---------- анкета: границы возраста (18..31 включительно) ----------
 @pytest.mark.parametrize("birth, ok", [
-    (years_ago(16, plus_days=1), False),    # 16 исполнится завтра
-    (years_ago(16), True),                  # 16 исполнилось сегодня
-    (years_ago(35, plus_days=1), True),     # 35 исполнится завтра, пока 34
-    (years_ago(35), False),                 # 35 исполнилось сегодня
+    (years_ago(18, plus_days=1), False),    # 18 исполнится завтра
+    (years_ago(18), True),                  # 18 исполнилось сегодня
+    (years_ago(32, plus_days=1), True),     # 32 исполнится завтра, пока 31
+    (years_ago(32), False),                 # 32 исполнилось сегодня
     (years_ago(-1), False),                 # дата в будущем
     ("2003-02-30", False),                  # такой даты нет
 ])

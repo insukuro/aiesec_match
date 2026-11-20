@@ -12,9 +12,13 @@ class ConsentRepo:
     def __init__(self, session: AsyncSession):
         self._s = session
 
-    async def has(self, user_id: uuid.UUID, kind: str) -> bool:
+    async def has(self, user_id: uuid.UUID, kind: str, version: str) -> bool:
         row = (await self._s.execute(
-            select(Consent).where(Consent.user_id == user_id, Consent.kind == kind)
+            select(Consent.user_id).where(
+                Consent.user_id == user_id,
+                Consent.kind == kind,
+                Consent.version == version,
+            )
         )).scalar_one_or_none()
         return row is not None
 

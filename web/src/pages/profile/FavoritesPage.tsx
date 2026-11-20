@@ -39,8 +39,8 @@ export function FavoritesPage() {
 
       <Tabs
         items={[
-          { id: "liked", label: "♥ Избранное" },
-          { id: "hidden", label: "👁 Скрытые" },
+          { id: "liked", label: "Избранное" },
+          { id: "hidden", label: "Скрытые" },
         ]}
         active={tab}
         onChange={(id) => { setTab(id as TabId); setOffset(0); }}

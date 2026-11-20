@@ -42,7 +42,7 @@ export function RecItemCard({ item, onOpen, onLike, onHide, busy }: RecItemCardP
       <div className="row" style={{ marginTop: "var(--space-3)" }}>
         <Button size="sm" onClick={onOpen} disabled={busy}>Подробнее</Button>
         <Button size="sm" variant={liked ? "primary" : "secondary"} onClick={onLike} disabled={busy || liked}>
-          {liked ? "♥ В избранном" : "Подходит"}
+          {liked ? "В избранном" : "Подходит"}
         </Button>
         <Button size="sm" variant="outline" onClick={onHide} disabled={busy}>Скрыть</Button>
       </div>

@@ -10,14 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import get_settings
 from ..domain.completeness import missing_for_match
 from ..domain.scoring import label, programme_prior
-from ..errors import ConsentRequired, ProfileIncomplete, ProfileNotFound, RunNotFound
+from ..errors import ProfileIncomplete, ProfileNotFound, RunNotFound
 from ..infrastructure.matcher_client import MatcherClient
 from ..infrastructure.repositories.catalog_repo import CatalogRepo
-from ..infrastructure.repositories.consent_repo import ConsentRepo
 from ..infrastructure.repositories.feedback_repo import FeedbackRepo
 from ..infrastructure.repositories.profile_repo import ProfileRepo
 from ..infrastructure.repositories.run_repo import RunRepo
 from ..schemas import RecommendationRunIn
+from .consent_service import ConsentService
 from .dto_mappers import card_dto
 
 
@@ -35,7 +35,7 @@ class MatchingService:
         self._profiles = ProfileRepo(session)
         self._catalog = CatalogRepo(session)
         self._feedback = FeedbackRepo(session)
-        self._consents = ConsentRepo(session)
+        self._consents = ConsentService(session)
 
     async def create_run(
         self,
@@ -43,12 +43,11 @@ class MatchingService:
         body: RecommendationRunIn,
         idempotency_key: str,
     ) -> dict:
+        await self._consents.require(user_id)
+
         existing = await self._runs.get_by_idempotency(user_id, idempotency_key)
         if existing is not None:
             return await self._assemble(existing)
-
-        if not await self._consents.has(user_id, "pd_processing"):
-            raise ConsentRequired()
 
         p = await self._profiles.get(user_id)
         if p is None:

@@ -9,6 +9,7 @@ import { Skeleton } from "../../shared/ui/Skeleton";
 import { useToast } from "../../shared/ui/Toast";
 import { ROUTES } from "../../app/routes";
 import { ApiError } from "../../shared/api/client";
+import { errorMessage } from "../../shared/lib/errors";
 
 export function ProfileEditPage() {
   const nav = useNavigate();
@@ -35,73 +36,49 @@ export function ProfileEditPage() {
     },
   });
 
-  const saveAndRecalc = useMutation({
-    mutationFn: async (body: unknown) => {
-      const etag = profileQ.data ? `"${profileQ.data.profile_version}"` : undefined;
-      await api.putProfile(body, etag);
-      return api.createRecommendations(crypto.randomUUID(), { mode: "sync", limit_per_programme: 10 });
-    },
-  });
-
   if (!schemaQ.data || !optionsQ.data || !profileQ.data) {
     return <main className="page"><Skeleton lines={6} /></main>;
   }
-  const schema = schemaQ.data;
-  const current = schema.steps[stepIdx]!;
+  const steps = schemaQ.data.steps.filter((step) => step.id !== "consent");
+  const current = steps[stepIdx]!;
   const initial = profileQ.data as unknown as Record<string, unknown>;
 
-  const persist = async (values: Record<string, unknown>, recalc: boolean) => {
+  const persist = async (values: Record<string, unknown>) => {
     try {
-      if (recalc) {
-        const run = await saveAndRecalc.mutateAsync(values);
-        qc.setQueryData(qk.run, run);
-        toast.show("Профиль сохранён, подборка обновлена", "success");
-        nav(ROUTES.results);
-      } else {
-        await save.mutateAsync(values);
-        await qc.invalidateQueries({ queryKey: qk.profile });
-        setDirty(false);
-        toast.show("Профиль сохранён", "success");
-      }
+      await save.mutateAsync(values);
+      await qc.invalidateQueries({ queryKey: qk.profile });
+      setDirty(false);
+      toast.show("Профиль сохранён", "success");
     } catch (e) {
       if (e instanceof ApiError && e.status === 412) {
         toast.show("Профиль изменён в другом месте. Загрузите актуальный.", "error");
         await qc.invalidateQueries({ queryKey: qk.profile });
       } else {
-        toast.show("Не удалось сохранить", "error");
+        toast.show(errorMessage(e), "error");
       }
     }
   };
 
   return (
     <main className="page">
-      <div className="form__progress">Шаг {stepIdx + 1} из {schema.steps.length}</div>
+      <div className="form__progress">Шаг {stepIdx + 1} из {steps.length}</div>
       <FormRenderer
         step={current}
         options={optionsQ.data}
         initialValues={initial}
         onDirty={() => setDirty(true)}
         onNext={async (values) => {
-          if (stepIdx + 1 < schema.steps.length) {
+          if (stepIdx + 1 < steps.length) {
             setStepIdx(stepIdx + 1);
           } else {
-            await persist(values, false);
+            await persist(values);
           }
         }}
         onBack={stepIdx > 0 ? () => setStepIdx(stepIdx - 1) : undefined}
       />
       <div className="row" style={{ marginTop: "var(--space-4)" }}>
-        <Button variant="outline" onClick={() => nav(ROUTES.profile)} disabled={save.isPending || saveAndRecalc.isPending}>
+        <Button variant="outline" onClick={() => nav(ROUTES.profile)} disabled={save.isPending}>
           Отменить изменения
-        </Button>
-        <Button
-          onClick={() => {
-            const values = initial;
-            void persist(values, true);
-          }}
-          disabled={saveAndRecalc.isPending}
-        >
-          Сохранить и обновить подборку
         </Button>
       </div>
     </main>

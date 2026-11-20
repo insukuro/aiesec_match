@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../shared/api/endpoints";
@@ -12,6 +12,7 @@ import { ErrorBanner } from "../../shared/ui/ErrorBanner";
 import { Button } from "../../shared/ui/Button";
 import { formatDate } from "../../shared/lib/date";
 import { useSendFeedback } from "../../features/feedback/useSendFeedback";
+import { useAuth } from "../../features/auth/AuthContext";
 
 const AIESEC_SLUG: Record<string, string> = {
   talent: "global-talent",
@@ -22,7 +23,9 @@ const AIESEC_SLUG: Record<string, string> = {
 export function OpportunityPage() {
   const { id } = useParams();
   const nav = useNavigate();
-  const feedback = useSendFeedback();
+  const { isAuthenticated } = useAuth();
+  const { mutate: sendFeedback, isPending: feedbackPending } = useSendFeedback();
+  const openedId = useRef<number | null>(null);
   const oppId = Number(id);
   const q = useQuery({
     queryKey: qk.opportunity(oppId),
@@ -30,16 +33,25 @@ export function OpportunityPage() {
     retry: 0,
   });
   useEffect(() => { if (q.data) document.title = `${q.data.title} — AIESEC Match`; }, [q.data]);
+  useEffect(() => {
+    if (!isAuthenticated || !q.data || openedId.current === q.data.opportunity_id) return;
+    openedId.current = q.data.opportunity_id;
+    sendFeedback({ opportunity_id: q.data.opportunity_id, signal: "opened" });
+  }, [isAuthenticated, q.data, sendFeedback]);
 
   if (q.isLoading) return <main className="page"><Skeleton lines={8} /></main>;
   if (q.error) return <main className="page"><ErrorBanner error={q.error} onRetry={() => q.refetch()} /></main>;
   if (!q.data) return null;
   const o = q.data;
 
-  const onApply = async () => {
-    await feedback.mutateAsync({ opportunity_id: o.opportunity_id, signal: "applied" });
+  const onApply = () => {
+    if (!isAuthenticated) {
+      nav(`/login?next=${encodeURIComponent(`/opportunity/${oppId}`)}`);
+      return;
+    }
     const slug = AIESEC_SLUG[o.programme.kind] ?? "global-talent";
     window.open(`https://aiesec.org/opportunity/${slug}/${o.opportunity_id}`, "_blank", "noopener");
+    sendFeedback({ opportunity_id: o.opportunity_id, signal: "applied" });
   };
 
   return (
@@ -74,8 +86,12 @@ export function OpportunityPage() {
         <p className="muted">Ещё {o.family.siblings_count} похожих проектов</p>
       )}
 
-      <Button size="lg" block onClick={onApply} disabled={!o.is_open || feedback.isPending}>
-        {o.is_open ? (feedback.isPending ? "Отправляем…" : "Откликнуться") : "Набор закрыт"}
+      <Button size="lg" block onClick={onApply} disabled={!o.is_open || (isAuthenticated && feedbackPending)}>
+        {!o.is_open
+          ? "Набор закрыт"
+          : !isAuthenticated
+            ? "Войдите, чтобы откликнуться"
+            : feedbackPending ? "Отправляем…" : "Откликнуться"}
       </Button>
     </main>
   );

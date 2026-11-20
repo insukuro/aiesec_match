@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.errors import (
-    BadCredentials, ConsentRequired, EmailTaken, ForbiddenGuest,
+    BadCredentials, ConsentRequired, EmailDeliveryUnavailable, EmailTaken,
     ProfileIncomplete, Problem, RateLimited, Unauthorized, Validation,
     VersionConflict, problem_handler,
 )
@@ -13,8 +13,8 @@ from app.errors import (
 @pytest.mark.parametrize("exc,code", [
     (Validation(), 422),
     (Unauthorized(), 401),
-    (ForbiddenGuest(), 403),
     (EmailTaken(), 409),
+    (EmailDeliveryUnavailable(), 503),
     (BadCredentials(), 401),
     (ConsentRequired(), 403),
     (ProfileIncomplete(), 409),

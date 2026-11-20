@@ -1,136 +1,230 @@
-"""Системные тесты всего сервиса: работают с уже поднятым стеком (make dev-up) как чёрный ящик.
+# backend/tests/conftest.py
+"""Общие фикстуры backend-тестов.
 
-Адреса берутся из переменных окружения. Значения по умолчанию подходят для запуска
-внутри сети docker compose (см. docker-compose.qa.yml).
+Два драйвера живут одновременно и это осознанно:
+  * asyncpg  — приложение (app/db.py: create_async_engine)
+  * psycopg  — фикстуры, которые пишут в parser.opportunities напрямую
+
+Импорт psycopg — ТОЛЬКО внутри фикстур: prod-образ (backend.txt без psycopg)
+импортирует conftest и не должен падать.
 """
+
 import os
 import uuid
 from datetime import date, timedelta
 
-import httpx
-import psycopg
 import pytest
+import pytest_asyncio
 
-from catalog_data import delete_range, insert_rows, make_row
+# --- 1. env ДО импорта app.* -------------------------------------------------
+os.environ.setdefault(
+    "AIESEC_DATABASE_URL",
+    "postgresql+asyncpg://postgres:postgres@localhost:5432/aiesec_test",
+)
+os.environ.setdefault("AIESEC_MATCHER_BASE_URL", "http://localhost:8002")
+os.environ.setdefault("AIESEC_JWT_SECRET", "test-jwt")
+os.environ.setdefault("AIESEC_PROFILE_HMAC_SECRET", "test-hmac")
 
-BACKEND = os.environ.get("QA_BACKEND_URL", "http://backend:8000")
-MATCHER = os.environ.get("QA_MATCHER_URL", "http://matcher:8000")
-PARSER = os.environ.get("QA_PARSER_URL", "http://parser:8000")
-DB = os.environ.get("QA_DB_NAME", "aiesec_match_dev")
-DB_HOST = os.environ.get("QA_DB_HOST", "postgres")
-DSN = {role: f"postgresql://{role}:{pw}@{DB_HOST}:5432/{DB}" for role, pw in {
-    "parser_writer": os.environ.get("PARSER_DB_PASSWORD", "parser"),
-    "backend_writer": os.environ.get("BACKEND_DB_PASSWORD", "backend"),
-    "matcher_writer": os.environ.get("MATCHER_DB_PASSWORD", "matcher"),
-}.items()}
+# --- 2. импорты приложения ---------------------------------------------------
+from httpx import ASGITransport, AsyncClient  # noqa: E402
+from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 
-API = f"{BACKEND}/api/v1"
-QA_LO, QA_HI = 9_900_000, 9_900_999          # диапазон номеров тестовых вакансий
-TODAY = date.today()
-
-
-def connect(role: str) -> psycopg.Connection:
-    return psycopg.connect(DSN[role], autocommit=False)
+from app.db import _engine, _session_factory, get_session  # noqa: E402
+from app.main import app  # noqa: E402
 
 
-@pytest.fixture(scope="session")
-def http():
-    # отдельное соединение на запрос: после ответа 500 сервер рвёт соединение
-    with httpx.Client(timeout=30, headers={"Connection": "close"}) as c:
-        yield c
+# --- 3. DSN для psycopg-фикстур ----------------------------------------------
+def _psycopg_dsn() -> str:
+    return os.environ["AIESEC_DATABASE_URL"].replace(
+        "postgresql+asyncpg://", "postgresql://", 1
+    )
 
 
-@pytest.fixture(scope="session")
-def catalog():
-    """Небольшой известный набор вакансий. Удаляется после прогона."""
-    with connect("parser_writer") as conn:
-        n = conn.execute("SELECT count(*) FROM parser.opportunities WHERE opportunity_id BETWEEN 8000000 AND 8999999"
-                         ).fetchone()[0]
-    if n:      # тысячи нагрузочных вакансий вытесняют тестовые из первой десятки подбора
-        pytest.exit(f"В каталоге {n} нагрузочных вакансий. Сначала уберите их: python seed_catalog.py --clean", 2)
-    EN = (10018, "English", "required")
-    rows = [
-        # 9900001: идеально подходит маркетологу из России (вакансия-образец 1340614 из реальной выдачи)
-        make_row(QA_LO + 1, programme_id=8, title="QA Sales at Cooler Systems [8 weeks]",
-                 backgrounds=[(10253, "Marketing", "required"), (10233, "Business administration", "required")],
-                 skills=[(10161, "Sales", "required")],
-                 languages=[EN, (10043, "Russian", "required")],
-                 nationalities=[(10353, "Azerbaijan", "required"), (10463, "Russia", "required")],
-                 study_levels=[(10785, "Bachelor")], duration=8, opened=TODAY - timedelta(days=5)),
-        # 9900002: та же программа, но требования не совпадают с анкетой
-        make_row(QA_LO + 2, programme_id=8, title="QA Data Analyst [12 weeks]",
-                 backgrounds=[(10241, "Education", "required")], skills=[(11180, "Data Analysis", "required")],
-                 languages=[EN], duration=12, applicants=90, opened=TODAY - timedelta(days=150)),
-        # 9900003: волонтёрская, платная, Тунис
-        make_row(QA_LO + 3, programme_id=7, title="QA Eco Volunteer [6 weeks]", mc=(1559, "Tunisia", "TN"),
-                 languages=[EN], duration=6, cost=300.0, currency="EUR"),
-        # 9900004: преподавание
-        make_row(QA_LO + 4, programme_id=9, title="QA English Teacher [24 weeks]", languages=[EN], duration=24),
-        # 9900005..7: не должны попадать в подбор
-        make_row(QA_LO + 5, programme_id=8, title="QA closed", is_open=False),
-        make_row(QA_LO + 6, programme_id=8, title="QA no places", available=0),
-        make_row(QA_LO + 7, programme_id=8, title="QA deadline passed", close=TODAY - timedelta(days=1)),
-    ]
-    with connect("parser_writer") as conn:
-        delete_range(conn, QA_LO, QA_HI)
-        insert_rows(conn, rows)
-    yield {"ideal": QA_LO + 1, "weak": QA_LO + 2, "volunteer": QA_LO + 3, "teacher": QA_LO + 4,
-           "closed": QA_LO + 5, "full": QA_LO + 6, "expired": QA_LO + 7}
-    with connect("parser_writer") as conn:
-        delete_range(conn, QA_LO, QA_HI)
+def _connect_psycopg():
+    import psycopg
+    return psycopg.connect(_psycopg_dsn(), autocommit=False)
 
 
-PROFILE = {
-    "programmes": ["talent"], "birth_date": "2003-05-10", "english_level": "B2",
+# --- 4. ASGI-клиент ----------------------------------------------------------
+@pytest_asyncio.fixture(scope="session")
+async def client():
+    from asgi_lifespan import LifespanManager
+
+    async with LifespanManager(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            timeout=30,
+            headers={"Connection": "close"},
+        ) as c:
+            yield c
+
+
+# --- 5. Сессия ---------------------------------------------------------------
+@pytest_asyncio.fixture
+async def session() -> AsyncSession:
+    async with _session_factory() as s:
+        yield s
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _override_session(session):
+    async def _get_session_override():
+        yield session
+
+    app.dependency_overrides[get_session] = _get_session_override
+    try:
+        yield
+    finally:
+        app.dependency_overrides.pop(get_session, None)
+
+
+# --- 6. Валидный профиль -----------------------------------------------------
+# Используется и тестами профилей, и фикстурой user_with_profile.
+VALID_PROFILE = {
+    "programmes": ["talent"],
+    "birth_date": "2003-05-10",
+    "english_level": "B2",
     "study": {"status": "bachelor", "course": 3, "specialty_text": "Маркетинг"},
-    "other_languages": ["ru"], "work_experience": "none", "spheres": ["marketing", "sales"],
-    "desired_countries": ["TR"], "duration": {"min_weeks": 6, "max_weeks": 12}, "start_window": "asap",
+    "other_languages": ["ru"],
+    "work_experience": "none",
+    "spheres": ["marketing", "sales"],
+    "desired_countries": ["TR"],
+    "duration": {"min_weeks": 6, "max_weeks": 12},
+    "start_window": "asap",
     "financial": {"willing_to_pay": True, "max_budget_eur": 500, "needs_stipend": False},
     "motivation_text": "Синтетическая анкета для тестов",
 }
 
 
-def new_email() -> str:
-    return f"qa_{uuid.uuid4().hex[:12]}@example.com"
+# --- 7. Пользователь ---------------------------------------------------------
+def _new_email() -> str:
+    return f"test_{uuid.uuid4().hex[:12]}@example.com"
 
 
-class User:
-    """Зарегистрированный тестовый пользователь."""
+class TestUser:
+    """Зарегистрированный пользователь. .user_id — то, что ждёт test_api_profiles."""
 
-    def __init__(self, http: httpx.Client, with_consent: bool = True, profile: dict | None = None):
-        self.http, self.email, self.password = http, new_email(), "Passw0rd123"
-        r = http.post(f"{API}/auth/register", json={"email": self.email, "password": self.password})
+    def __init__(self, client: AsyncClient, with_consent: bool = True):
+        self.client = client
+        self.email = _new_email()
+        self.password = "Passw0rd123"
+        self.user_id: int | None = None
+        self.headers: dict[str, str] = {}
+        self._with_consent = with_consent
+
+    async def register(self) -> None:
+        r = await self.client.post(
+            "/api/v1/auth/register",
+            json={"email": self.email, "password": self.password},
+        )
         assert r.status_code == 200, r.text
-        self.h = {"Authorization": f"Bearer {r.json()['access_token']}"}
-        if with_consent:
-            assert self.post("/me/consents", json={"kind": "pd_processing", "version": "1"}).status_code == 204
-        if profile is not None:
-            assert self.put("/profiles/me", json=profile).status_code == 200
+        body = r.json()
+        # user_id: в разных API встречается как user_id / id / sub — берём что есть
+        self.user_id = body.get("user_id") or body.get("id")
+        if self.user_id is None:
+            # fallback: декодируем sub из JWT (payload middle part)
+            import base64, json as _json
+            payload = body["access_token"].split(".")[1]
+            payload += "=" * (-len(payload) % 4)
+            data = _json.loads(base64.urlsafe_b64decode(payload))
+            self.user_id = int(data["sub"])
+        self.headers = {"Authorization": f"Bearer {body['access_token']}"}
 
-    def _call(self, method, path, **kw):
-        headers = {**self.h, **kw.pop("headers", {})}
-        return self.http.request(method, f"{API}{path}", headers=headers, **kw)
+        if self._with_consent:
+            r = await self.client.post(
+                "/api/v1/me/consents",
+                json={"kind": "pd_processing", "version": "1"},
+                headers=self.headers,
+            )
+            assert r.status_code == 204, r.text
 
-    def get(self, path, **kw): return self._call("GET", path, **kw)
-    def post(self, path, **kw): return self._call("POST", path, **kw)
-    def put(self, path, **kw): return self._call("PUT", path, **kw)
-    def delete(self, path, **kw): return self._call("DELETE", path, **kw)
+    async def put_profile(self, payload: dict | None = None) -> dict:
+        r = await self.client.put(
+            "/api/v1/profiles/me",
+            json=payload or VALID_PROFILE,
+            headers=self.headers,
+        )
+        assert r.status_code == 200, r.text
+        return r.json()
 
-    def recommend(self, body: dict | None = None, key: str | None = None):
-        return self.post("/recommendations", json=body or {},
-                         headers={"Idempotency-Key": key or str(uuid.uuid4())})
+    async def cleanup(self) -> None:
+        try:
+            await self.client.delete("/api/v1/me", headers=self.headers)
+        except Exception:
+            pass
 
 
-@pytest.fixture
-def user(http):
-    u = User(http, profile=PROFILE)
+@pytest_asyncio.fixture
+async def user(client):
+    """Зарегистрирован + согласие. Профиля нет."""
+    u = TestUser(client, with_consent=True)
+    await u.register()
     yield u
-    u.delete("/me")
+    await u.cleanup()
 
 
-@pytest.fixture
-def bare_user(http):
-    """Зарегистрирован, но без согласия и без анкеты."""
-    u = User(http, with_consent=False)
+@pytest_asyncio.fixture
+async def bare_user(client):
+    """Зарегистрирован, без согласия и без анкеты."""
+    u = TestUser(client, with_consent=False)
+    await u.register()
     yield u
-    u.delete("/me")
+    await u.cleanup()
+
+
+@pytest_asyncio.fixture
+async def auth_headers(user):
+    """Готовые заголовки для user."""
+    return user.headers
+
+
+@pytest_asyncio.fixture
+async def user_with_consent(user):
+    """Совместимость с test_api_profiles.py: возвращает (user, session)."""
+    # session уже открыта через autouse _override_session -> session
+    from app.db import _session_factory
+    async with _session_factory() as s:
+        yield user, s
+
+
+@pytest_asyncio.fixture
+async def user_with_profile(user):
+    """Зарегистрирован + согласие + профиль v1. Возвращает (user, session)."""
+    await user.put_profile()
+    from app.db import _session_factory
+    async with _session_factory() as s:
+        yield user, s
+
+
+# --- 8. Каталог вакансий (psycopg) ------------------------------------------
+CATALOG_LO, CATALOG_HI = 9_800_000, 9_800_999
+
+
+@pytest.fixture(scope="session")
+def catalog_rows():
+    from catalog_data import delete_range, insert_rows, make_row
+
+    today = date.today()
+    EN = (10018, "English", "required")
+    rows = [
+        make_row(CATALOG_LO + 1, programme_id=8, title="Test Sales [8 weeks]",
+                 backgrounds=[(10253, "Marketing", "required")],
+                 languages=[EN], duration=8, opened=today - timedelta(days=5)),
+        make_row(CATALOG_LO + 2, programme_id=9, title="Test Teacher [24 weeks]",
+                 languages=[EN], duration=24),
+    ]
+    with _connect_psycopg() as conn:
+        delete_range(conn, CATALOG_LO, CATALOG_HI)
+        insert_rows(conn, rows)
+    yield {"ideal": CATALOG_LO + 1, "teacher": CATALOG_LO + 2}
+    with _connect_psycopg() as conn:
+        delete_range(conn, CATALOG_LO, CATALOG_HI)
+
+
+# --- 9. Очистка движка -------------------------------------------------------
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def _dispose_engine():
+    yield
+    await _engine.dispose()

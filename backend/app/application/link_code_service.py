@@ -54,15 +54,3 @@ class LinkCodeService:
         await self._outbox.update_chat_id_for_user(lc.user_id, telegram_chat_id)
         await self._s.commit()
         return lc.user_id
-
-    async def confirm_for_user(self, user_id: uuid.UUID, code: str) -> None:
-        """Альтернативный флоу: пользователь уже залогинен и вводит код из бота."""
-        lc = await self._codes.get(code.upper())
-        if lc is None or lc.user_id != user_id:
-            raise InvalidLinkCode()
-        if lc.used_at is not None:
-            raise LinkCodeAlreadyUsed()
-        if lc.expires_at < datetime.now(timezone.utc):
-            raise LinkCodeExpired()
-        await self._codes.mark_used(lc)
-        await self._s.commit()

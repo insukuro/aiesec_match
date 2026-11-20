@@ -19,7 +19,7 @@ async def test_put_profile_without_consent(client, auth_headers):
 
 @pytest.mark.asyncio
 async def test_put_profile_creates_v1(client, user_with_consent, monkeypatch):
-    from app.auth import issue_token
+    from app.application.auth_service import issue_token
     user, _ = user_with_consent
     tok, _ = issue_token(user.user_id, 3600)
     h = {"Authorization": f"Bearer {tok}"}
@@ -35,7 +35,7 @@ async def test_put_profile_creates_v1(client, user_with_consent, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_put_profile_increments_version(client, user_with_consent):
-    from app.auth import issue_token
+    from app.application.auth_service import issue_token
     user, _ = user_with_consent
     tok, _ = issue_token(user.user_id, 3600)
     h = {"Authorization": f"Bearer {tok}"}
@@ -50,7 +50,7 @@ async def test_put_profile_increments_version(client, user_with_consent):
 
 @pytest.mark.asyncio
 async def test_put_profile_if_match_conflict(client, user_with_consent):
-    from app.auth import issue_token
+    from app.application.auth_service import issue_token
     user, _ = user_with_consent
     tok, _ = issue_token(user.user_id, 3600)
     h = {"Authorization": f"Bearer {tok}"}
@@ -64,7 +64,7 @@ async def test_put_profile_if_match_conflict(client, user_with_consent):
 
 @pytest.mark.asyncio
 async def test_put_profile_if_match_ok(client, user_with_consent):
-    from app.auth import issue_token
+    from app.application.auth_service import issue_token
     user, _ = user_with_consent
     tok, _ = issue_token(user.user_id, 3600)
     h = {"Authorization": f"Bearer {tok}"}
@@ -78,7 +78,7 @@ async def test_put_profile_if_match_ok(client, user_with_consent):
 
 @pytest.mark.asyncio
 async def test_put_profile_invalid_age(client, user_with_consent):
-    from app.auth import issue_token
+    from app.application.auth_service import issue_token
     user, _ = user_with_consent
     tok, _ = issue_token(user.user_id, 3600)
     h = {"Authorization": f"Bearer {tok}"}
@@ -91,7 +91,7 @@ async def test_put_profile_invalid_age(client, user_with_consent):
 
 @pytest.mark.asyncio
 async def test_get_profile_returns_etag(client, user_with_profile):
-    from app.auth import issue_token
+    from app.application.auth_service import issue_token
     user, _ = user_with_profile
     tok, _ = issue_token(user.user_id, 3600)
     h = {"Authorization": f"Bearer {tok}"}
@@ -104,7 +104,7 @@ async def test_get_profile_returns_etag(client, user_with_profile):
 
 @pytest.mark.asyncio
 async def test_list_versions_desc(client, user_with_profile):
-    from app.auth import issue_token
+    from app.application.auth_service import issue_token
     user, _ = user_with_profile
     tok, _ = issue_token(user.user_id, 3600)
     h = {"Authorization": f"Bearer {tok}"}
@@ -118,7 +118,7 @@ async def test_list_versions_desc(client, user_with_profile):
 
 @pytest.mark.asyncio
 async def test_get_version_snapshot(client, user_with_profile):
-    from app.auth import issue_token
+    from app.application.auth_service import issue_token
     user, _ = user_with_profile
     tok, _ = issue_token(user.user_id, 3600)
     h = {"Authorization": f"Bearer {tok}"}
@@ -130,7 +130,7 @@ async def test_get_version_snapshot(client, user_with_profile):
 
 @pytest.mark.asyncio
 async def test_get_version_not_found(client, user_with_profile):
-    from app.auth import issue_token
+    from app.application.auth_service import issue_token
     user, _ = user_with_profile
     tok, _ = issue_token(user.user_id, 3600)
     h = {"Authorization": f"Bearer {tok}"}
@@ -138,9 +138,3 @@ async def test_get_version_not_found(client, user_with_profile):
     r = await client.get("/api/v1/profiles/me/versions/999", headers=h)
     assert r.status_code == 404
 
-
-@pytest.mark.asyncio
-async def test_guest_cannot_access_profiles(client, guest_headers):
-    r = await client.get("/api/v1/profiles/me", headers=guest_headers)
-    assert r.status_code == 403
-    assert r.json()["type"] == "/problems/forbidden-guest"

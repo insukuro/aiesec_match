@@ -3,7 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..application.meta_service import MetaService
 from ..db import get_session
-from ..formschema import load_form_schema
+from ..formschema import load_consent_schema, load_form_schema
+from ..schemas import ConsentSchemaOut
 
 router = APIRouter(prefix="/meta", tags=["meta"])
 
@@ -12,6 +13,14 @@ router = APIRouter(prefix="/meta", tags=["meta"])
 async def form_schema(response: Response):
     schema = load_form_schema()
     response.headers["Cache-Control"] = "public, max-age=300"
+    response.headers["ETag"] = f'"{schema.get("version", "1")}"'
+    return schema
+
+
+@router.get("/consents", response_model=ConsentSchemaOut)
+async def consents(response: Response):
+    schema = load_consent_schema()
+    response.headers["Cache-Control"] = "public, max-age=60"
     response.headers["ETag"] = f'"{schema.get("version", "1")}"'
     return schema
 

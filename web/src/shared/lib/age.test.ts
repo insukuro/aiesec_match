@@ -39,8 +39,8 @@ describe("maxBirthDate / minBirthDate", () => {
   });
   
   it("minBirthDate = сегодня − MAX_AGE лет", () => {
-    // 2025 - 30 = 1995
-    expect(minBirthDate(today)).toBe("1994-06-16");
+    // The first allowed birth date keeps the full age at MAX_AGE.
+    expect(minBirthDate(today)).toBe("1993-06-16");
   });
   
   it("не зависит от UTC-сдвига (регрессия)", () => {
@@ -85,8 +85,8 @@ describe("validateAge", () => {
     expect(validateAge("abc")).toMatch(/Некорректная/);
   });
   
-  it("MIN_AGE/MAX_AGE — 18/30", () => {
+  it("MIN_AGE/MAX_AGE — 18/31", () => {
     expect(MIN_AGE).toBe(18);
-    expect(MAX_AGE).toBe(30);
+    expect(MAX_AGE).toBe(31);
   });
 });

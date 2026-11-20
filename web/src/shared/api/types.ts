@@ -1,5 +1,20 @@
 export type ProgrammeKind = "talent" | "teacher" | "volunteer";
 export type MatchLabel = "excellent" | "good" | "fair";
+export type ConsentKind = "pd_processing" | "marketing";
+
+export interface ConsentDocument {
+  kind: ConsentKind;
+  version: string;
+  title: string;
+  text: string;
+  label: string;
+  required: boolean;
+}
+
+export interface ConsentSchema {
+  version: string;
+  consents: ConsentDocument[];
+}
 
 export interface Problem {
   type: string;
@@ -13,12 +28,12 @@ export interface Problem {
 
 export interface Me {
   user_id: string;
-  is_anonymous: boolean;
   email: string | null;
+  email_verified: boolean;
   has_profile: boolean;
   profile_version: number | null;
   identities: Array<{ provider: string; external_id: string | null }>;
-  consents: Array<{ kind: string; version: string; accepted_at: string }>;
+  consents: Array<{ kind: ConsentKind; version: string; accepted_at: string }>;
 }
 
 export interface ProfileData {
@@ -154,6 +169,16 @@ export interface RecommendationRun {
   error: string | null;
 }
 
+export interface RecommendationRunSummary {
+  run_id: string;
+  state: RecommendationRun["state"];
+  profile_version: number;
+  total_candidates: number | null;
+  created_at: string;
+  finished_at: string | null;
+  error: string | null;
+}
+
 export interface FeedbackIn {
   opportunity_id: number;
   signal: "opened" | "liked" | "disliked" | "hidden" | "applied";
@@ -171,6 +196,24 @@ export interface LinkCode {
   expires_in: number;
 }
 
+export interface EmailChangeRequest {
+  status: "verification_required";
+  dev_code?: string;
+}
+
+export interface NotificationItem {
+  notification_id: string;
+  kind: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+  sent_at: string | null;
+  read_at: string | null;
+}
+
+export interface NotificationsPage extends Page<NotificationItem> {
+  unread: number;
+}
+
 export interface ProfileVersionEntry {
   version: number;
   created_at: string;
@@ -183,8 +226,8 @@ export interface ProfileVersionSnapshot extends ProfileOut {
 }
 
 export type HistoryType =
-  | "profile_created" | "profile_updated" | "run_started" | "run_finished"
-  | "opportunity_viewed" | "signal_liked" | "signal_disliked" | "signal_hidden" | "signal_applied";
+  | "run_finished" | "signal_opened" | "signal_liked" | "signal_disliked"
+  | "signal_hidden" | "signal_applied";
 
 export interface HistoryEvent {
   event_id: string;
@@ -206,29 +249,14 @@ export interface AnalyticsResponse {
   recommendation_statistics: Array<{ programme_kind: ProgrammeKind; count: number }>;
 }
 
-export interface DashboardPreferences {
-  visible_charts: string[];
-  order: string[];
-  period: AnalyticsPeriod;
-  chart_types: Record<string, string>;
-}
-
-export const CHART_IDS = [
-  "profile_completeness", "programme_distribution", "interests_distribution",
-  "activity_series", "recommendation_statistics",
-] as const;
-export type ChartId = (typeof CHART_IDS)[number];
-
-export const DEFAULT_DASHBOARD: DashboardPreferences = {
-  visible_charts: [...CHART_IDS],
-  order: [...CHART_IDS],
-  period: "30d",
-  chart_types: {},
-};
+export type ChartId =
+  | "profile_completeness"
+  | "programme_distribution"
+  | "interests_distribution"
+  | "activity_series"
+  | "recommendation_statistics";
 
 export interface AuthToken {
   access_token: string;
   expires_in: number;
-  is_anonymous: boolean;
-  device_secret?: string | null;
 }

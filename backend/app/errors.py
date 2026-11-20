@@ -45,6 +45,12 @@ class ConsentRequired(Problem):
     status_code = 409
 
 
+class ConsentVersionOutdated(Problem):
+    type = "/problems/consent-version-outdated"
+    title = "Consent version outdated"
+    status_code = 409
+
+
 class ProfileNotFound(Problem):
     type = "/problems/profile-not-found"
     title = "Profile not found"
@@ -113,6 +119,12 @@ class EmailNotVerified(Problem):
     type = "/problems/email-not-verified"
     title = "Email not verified"
     status_code = 403
+
+
+class EmailDeliveryUnavailable(Problem):
+    type = "/problems/email-delivery-unavailable"
+    title = "Email delivery unavailable"
+    status_code = 503
 
 
 class EmailChangePending(Problem):

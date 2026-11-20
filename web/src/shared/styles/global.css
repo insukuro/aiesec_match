@@ -1,4 +1,5 @@
 @import "./tokens.css";
+@import "./layout.css";
 
 *, *::before, *::after { box-sizing: border-box; }
 html, body, #root { height: 100%; }
@@ -9,6 +10,7 @@ body {
   background: var(--c-bg);
   color: var(--c-text);
   -webkit-font-smoothing: antialiased;
+  color-scheme: light;
 }
 a { color: var(--c-blue-text); }
 button { font: inherit; }
@@ -273,10 +275,3 @@ button { font: inherit; }
 .ui-password__bar { width: 32px; height: 4px; border-radius: 999px; background: var(--c-border); }
 .ui-password__bar--on { background: var(--c-blue); }
 .ui-password__label { font-size: var(--fs-caption); color: var(--c-text-muted); }
-
-/* --- Guest banner --- */
-.guest-banner {
-  background: color-mix(in srgb, var(--c-warning) 12%, var(--c-surface));
-  border-color: color-mix(in srgb, var(--c-warning) 40%, var(--c-border));
-  margin-bottom: var(--space-3);
-}

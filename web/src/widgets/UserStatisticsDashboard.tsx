@@ -1,7 +1,7 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../shared/api/endpoints";
 import { qk } from "../shared/api/queries";
-import { useDashboardPreferences } from "../features/dashboard/useDashboardPreferences";
 import { DonutChart } from "../shared/ui/DonutChart";
 import { BarChart } from "../shared/ui/BarChart";
 import { LineChart } from "../shared/ui/LineChart";
@@ -9,24 +9,19 @@ import { ErrorBanner } from "../shared/ui/ErrorBanner";
 import { Skeleton } from "../shared/ui/Skeleton";
 import { EmptyState } from "../shared/ui/EmptyState";
 import { PROGRAMME_COLORS, PROGRAMME_LABEL } from "../shared/config/brand";
-import type { ChartId } from "../shared/api/types";
+import type { AnalyticsPeriod, ChartId } from "../shared/api/types";
 
 export function UserStatisticsDashboard() {
-  const prefs = useDashboardPreferences();
-  const period = prefs.data?.period ?? "30d";
+  const [period, setPeriod] = useState<AnalyticsPeriod>("30d");
   const q = useQuery({
     queryKey: qk.analytics(period),
     queryFn: () => api.getAnalytics(period),
     retry: 1,
   });
 
-  if (prefs.isLoading) return <Skeleton lines={4} />;
   if (q.isLoading) return <Skeleton lines={6} />;
   if (q.error) return <ErrorBanner error={q.error} onRetry={() => q.refetch()} />;
   if (!q.data) return null;
-
-  const visible = prefs.data?.visible_charts ?? [];
-  const order = prefs.data?.order ?? visible;
 
   const renderers: Record<ChartId, () => JSX.Element> = {
     profile_completeness: () => (
@@ -113,7 +108,20 @@ export function UserStatisticsDashboard() {
 
   return (
     <div className="stack">
-      {order.filter((id): id is ChartId => (visible as string[]).includes(id)).map((id) => (
+      <div className="ui-segmented" role="group" aria-label="Период аналитики">
+        {(["7d", "30d", "90d", "all"] as const).map((value) => (
+          <button
+            key={value}
+            type="button"
+            className={`ui-segmented__item${period === value ? " ui-segmented__item--on" : ""}`}
+            aria-pressed={period === value}
+            onClick={() => setPeriod(value)}
+          >
+            {{ "7d": "7 дней", "30d": "30 дней", "90d": "90 дней", all: "Всё время" }[value]}
+          </button>
+        ))}
+      </div>
+      {(Object.keys(renderers) as ChartId[]).map((id) => (
         <div key={id}>{renderers[id]()}</div>
       ))}
     </div>

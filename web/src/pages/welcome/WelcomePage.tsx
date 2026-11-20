@@ -1,43 +1,39 @@
-import { Link, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../../shared/api/endpoints";
-import { fetchers, qk } from "../../shared/api/queries";
 import { setAccessToken } from "../../shared/api/client";
 import { Button } from "../../shared/ui/Button";
 import { ROUTES } from "../../app/routes";
 import { useToast } from "../../shared/ui/Toast";
+import { useAuth } from "../../features/auth/AuthContext";
+import { errorMessage } from "../../shared/lib/errors";
 
 export function WelcomePage() {
   const nav = useNavigate();
   const toast = useToast();
-  const { data: me } = useQuery({ queryKey: qk.me, queryFn: fetchers.me, retry: 0, staleTime: 30_000 });
+  const { state, me, setMe } = useAuth();
 
-  const startAnonymously = async () => {
-    try {
-      const secret = localStorage.getItem("device_secret");
-      const res = await api.authAnonymous(secret);
-      setAccessToken(res.access_token);
-      if (res.device_secret) localStorage.setItem("device_secret", res.device_secret);
-      nav(ROUTES.onboarding(0));
-    } catch {
-      toast.show("Не удалось начать. Попробуйте ещё раз.", "error");
+  useEffect(() => {
+    if (state.status === "authenticated") {
+      nav(me?.has_profile ? ROUTES.dashboard : ROUTES.onboarding(0), { replace: true });
     }
-  };
-
+  }, [state.status, me?.has_profile, nav]);
   const startTelegram = async () => {
     const tg = (window as { Telegram?: { WebApp?: { initData?: string } } }).Telegram?.WebApp;
     if (!tg?.initData) { toast.show("Telegram недоступен", "error"); return; }
     try {
       const res = await api.authTelegram(tg.initData);
       setAccessToken(res.access_token);
-      nav(me?.has_profile ? ROUTES.results : ROUTES.onboarding(0));
-    } catch {
-      toast.show("Не удалось войти через Telegram", "error");
+      const me = await api.getMe();
+      setMe(me);
+      nav(me.has_profile ? ROUTES.dashboard : ROUTES.onboarding(0));
+    } catch (error) {
+      toast.show(errorMessage(error), "error");
     }
   };
 
   return (
-    <main className="page">
+    <main className="page page--entry">
       <header className="section">
         <h1 className="page__title">AIESEC Match</h1>
         <p className="muted">
@@ -48,14 +44,15 @@ export function WelcomePage() {
       </header>
 
       <div className="stack">
-        <Button size="lg" onClick={startAnonymously} block>Начать</Button>
+        <Button size="lg" onClick={() => nav(ROUTES.register)} block>Создать аккаунт</Button>
         <Button variant="outline" size="lg" onClick={() => nav(ROUTES.login)} block>Войти</Button>
-        <Button variant="text" onClick={startTelegram}>Продолжить через Telegram</Button>
+        {(window as { Telegram?: { WebApp?: { initData?: string } } }).Telegram?.WebApp?.initData && (
+          <Button variant="text" onClick={startTelegram}>Войти через Telegram</Button>
+        )}
       </div>
 
       <footer className="section muted" style={{ fontSize: "var(--fs-caption)" }}>
-        Нажимая «Начать», вы принимаете{" "}
-        <Link to="/legal/privacy">политику обработки персональных данных</Link>.
+        Продолжая, вы сможете заполнить профиль и получить персональные рекомендации.
       </footer>
     </main>
   );

@@ -7,6 +7,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from .domain.age import validate_birth_date
 
 ProgrammeKind = Literal["talent", "teacher", "volunteer"]
+ConsentKind = Literal["pd_processing", "marketing"]
 
 _PASSWORD_RE = re.compile(r"^(?=.*[A-Za-z])(?=.*\d).+$")
 
@@ -79,6 +80,12 @@ class TelegramAuthIn(BaseModel):
     init_data: str
 
 
+class ConsentAcceptanceOut(BaseModel):
+    kind: ConsentKind
+    version: str
+    accepted_at: datetime
+
+
 class MeOut(BaseModel):
     user_id: str
     email: str | None = None
@@ -86,12 +93,26 @@ class MeOut(BaseModel):
     has_profile: bool
     profile_version: int | None
     identities: list[dict]
-    consents: list[dict]
+    consents: list[ConsentAcceptanceOut]
 
 
 class ConsentIn(BaseModel):
-    kind: Literal["pd_processing", "marketing"]
+    kind: ConsentKind
     version: str
+
+
+class ConsentDocumentOut(BaseModel):
+    kind: ConsentKind
+    version: str
+    title: str
+    text: str
+    label: str
+    required: bool
+
+
+class ConsentSchemaOut(BaseModel):
+    version: str
+    consents: list[ConsentDocumentOut]
 
 
 class FormSchemaOut(BaseModel):
@@ -259,8 +280,3 @@ class NotificationsPage(BaseModel):
 class LinkCodeOut(BaseModel):
     code: str
     expires_in: int
-
-
-class LinkCodeConfirmIn(BaseModel):
-    code: str = Field(min_length=4, max_length=16)
-    telegram_chat_id: int | None = None

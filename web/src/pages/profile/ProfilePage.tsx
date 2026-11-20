@@ -9,29 +9,12 @@ import { Skeleton } from "../../shared/ui/Skeleton";
 import { ErrorBanner } from "../../shared/ui/ErrorBanner";
 import { Button } from "../../shared/ui/Button";
 import { ROUTES } from "../../app/routes";
-import { useAuth } from "../../features/auth/AuthContext";
-import { GuestBanner } from "../../widgets/GuestBanner";
 import { EmptyState } from "../../shared/ui/EmptyState";
 
 export function ProfilePage() {
   const nav = useNavigate();
-  const { isGuest } = useAuth();
   useEffect(() => { document.title = "Профиль — AIESEC Match"; }, []);
-  const q = useQuery({ queryKey: qk.profile, queryFn: fetchers.profile, retry: 0, enabled: !isGuest });
-
-  if (isGuest) {
-    return (
-      <main className="page">
-        <h1 className="page__title">Профиль</h1>
-        <GuestBanner />
-        <EmptyState
-          title="Создайте аккаунт"
-          description="Профиль доступен только в аккаунте."
-          action={<Button onClick={() => nav(ROUTES.register)}>Создать аккаунт</Button>}
-        />
-      </main>
-    );
-  }
+  const q = useQuery({ queryKey: qk.profile, queryFn: fetchers.profile, retry: 0 });
 
   if (q.isLoading) return <main className="page"><Skeleton lines={8} /></main>;
   if (q.error) return <main className="page"><ErrorBanner error={q.error} onRetry={() => q.refetch()} /></main>;
@@ -57,7 +40,7 @@ export function ProfilePage() {
       <div className="row section">
         <Button onClick={() => nav(ROUTES.profileEdit)}>Редактировать</Button>
         <Button variant="outline" onClick={() => nav(ROUTES.favorites)}>Избранное</Button>
-        <Link to={ROUTES.profileStats} className="ui-btn" data-variant="outline">Моя статистика</Link>
+        <Link to={ROUTES.dashboard} className="ui-btn" data-variant="outline">Обзор</Link>
       </div>
       <section className="section">
         <h2 className="section__title">История версий</h2>

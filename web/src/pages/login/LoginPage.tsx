@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../features/auth/AuthContext";
 import { AuthCard } from "../../shared/ui/AuthCard";
 import { Button } from "../../shared/ui/Button";
@@ -11,8 +11,9 @@ import { errorMessage } from "../../shared/lib/errors";
 
 export function LoginPage() {
   const nav = useNavigate();
+  const [searchParams] = useSearchParams();
   const toast = useToast();
-  const { state, loginWithPassword, loginAsGuest } = useAuth();
+  const { state, me, loginWithPassword } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -20,27 +21,20 @@ export function LoginPage() {
   useEffect(() => { document.title = "Вход — AIESEC Match"; }, []);
 
   useEffect(() => {
-    if (state.status === "authenticated") nav(ROUTES.results, { replace: true });
-  }, [state.status, nav]);
+    if (state.status === "authenticated") {
+      const next = searchParams.get("next");
+      const destination = next?.startsWith("/") && !next.startsWith("//")
+        ? next
+        : me?.has_profile ? ROUTES.dashboard : ROUTES.onboarding(0);
+      nav(destination, { replace: true });
+    }
+  }, [state.status, me?.has_profile, nav, searchParams]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     try {
       await loginWithPassword(email, password);
-      nav(ROUTES.results);
-    } catch (err) {
-      toast.show(errorMessage(err), "error");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const continueAsGuest = async () => {
-    setBusy(true);
-    try {
-      await loginAsGuest();
-      nav(ROUTES.onboarding(0));
     } catch (err) {
       toast.show(errorMessage(err), "error");
     } finally {
@@ -65,9 +59,6 @@ export function LoginPage() {
         </label>
         <Button type="submit" size="lg" block disabled={busy}>
           {busy ? "Входим…" : "Войти"}
-        </Button>
-        <Button type="button" variant="text" onClick={continueAsGuest} disabled={busy}>
-          Продолжить как гость
         </Button>
       </form>
     </AuthCard>

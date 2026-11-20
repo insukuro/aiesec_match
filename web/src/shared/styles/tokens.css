@@ -5,9 +5,9 @@
   --c-blue-hover: #0366c7;
   --c-blue-text: #0369c4;   /* для ссылок и текстовых кнопок */
 
-  --c-light: #F3F4F7;
-  --c-neutral: #CACCD1;
-  --c-dark: #52565E;
+  --c-light: #F1F4F6;
+  --c-neutral: #B8C2CB;
+  --c-dark: #24313B;
 
   --c-talent: #0CB9C1;
   --c-teacher: #F48924;
@@ -21,16 +21,16 @@
   --c-danger: #D9433B;
   --c-danger-text: #9C2A24;
 
-  --c-text: #14161A;
-  --c-text-muted: #4B505A;
-  --c-bg: #FFFFFF;
+  --c-text: #17232C;
+  --c-text-muted: #61717D;
+  --c-bg: #F4F6F8;
   --c-surface: #FFFFFF;
-  --c-surface-2: #F7F8FA;
-  --c-border: #E1E4EB;
+  --c-surface-2: #F8FAFB;
+  --c-border: #D9E0E5;
 
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 20px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
   --radius-pill: 999px;
 
   --space-1: 4px;
@@ -40,7 +40,7 @@
   --space-5: 24px;
   --space-6: 32px;
 
-  --font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-family: "Aptos", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
   --fs-display: 32px;
   --fs-h1: 26px;
   --fs-h2: 20px;
@@ -57,34 +57,4 @@
 
   --tg-bg: var(--c-bg);
   --tg-text: var(--c-text);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    /* --c-blue остаётся насыщенным, чтобы #fff на нём читался;
-       для текста/иконок — отдельный, светлый --c-blue-text */
-    --c-blue: #0E63C4;
-    --c-blue-hover: #0B4F9E;
-    --c-blue-text: #7ABFFF;
-
-    --c-bg: #0F1115;
-    --c-surface: #171A20;
-    --c-surface-2: #1E222A;
-    --c-text: #ECEEF2;
-    --c-text-muted: #A8B0BC;
-    --c-border: #2B3140;
-
-    --c-light: #1E222A;
-    --c-neutral: #3A4150;
-
-    --c-success: #1F8A50;
-    --c-success-text: #7AD8A7;
-    --c-warning: #9A6812;
-    --c-warning-text: #F6C97A;
-    --c-danger: #C33A32;
-    --c-danger-text: #F59A95;
-
-    --tg-bg: var(--c-bg);
-    --tg-text: var(--c-text);
-  }
 }

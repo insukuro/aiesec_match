@@ -89,10 +89,10 @@ class CatalogRepo:
         return list(rows), int(total)
 
     async def current_watermark(self):
-        row = (await self._s.execute(
-            select(SyncStateV1).limit(1)
-        )).scalar_one_or_none()
-        return row.committed_watermark if row else None
+        result = await self._s.execute(
+            select(SyncStateV1.committed_watermark).limit(1)
+        )
+        return result.scalar_one_or_none()
 
     async def programme_stats(self) -> list[dict[str, Any]]:
         rows = (await self._s.execute(

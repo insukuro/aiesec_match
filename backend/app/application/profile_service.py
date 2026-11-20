@@ -7,6 +7,7 @@ from ..domain.completeness import completeness
 from ..errors import ProfileNotFound, Validation, VersionConflict
 from ..infrastructure.repositories.profile_repo import ProfileRepo
 from ..schemas import ProfileIn, ProfileOut, ProfileVersionEntry, ProfileVersionSnapshot
+from .consent_service import ConsentService
 
 
 class ProfileService:
@@ -33,7 +34,8 @@ class ProfileService:
         body: ProfileIn,
         if_match: str | None,
     ) -> ProfileOut:
-        # consent НЕ требуется — consent запрашивается отдельно и проверяется при matching
+        await ConsentService(self._s).require(user_id)
+
         if body.birth_date is not None:
             age = age_from_birth(body.birth_date)
             if age is None or age < 18 or age > 31:

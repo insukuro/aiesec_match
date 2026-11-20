@@ -12,20 +12,48 @@ make up                  # postgres + парсер; первый full-sync ст�
 ```
 aiesec_match
 ├─ .dockerignore
+├─ .ruff_cache
+│  ├─ 0.17.5
+│  │  ├─ 6609985663905342634
+│  │  └─ 8213006384568045760
+│  └─ CACHEDIR.TAG
 ├─ Makefile
 ├─ README.md
 ├─ backend
 │  ├─ alembic.ini
 │  ├─ app
 │  │  ├─ __init__.py
-│  │  ├─ age.py
+│  │  ├─ __pycache__
+│  │  │  ├─ __init__.cpython-312.pyc
+│  │  │  ├─ config.cpython-312.pyc
+│  │  │  ├─ db.cpython-312.pyc
+│  │  │  ├─ errors.cpython-312.pyc
+│  │  │  ├─ formschema.cpython-312.pyc
+│  │  │  ├─ main.cpython-312.pyc
+│  │  │  └─ schemas.cpython-312.pyc
 │  │  ├─ api
 │  │  │  ├─ __init__.py
+│  │  │  ├─ __pycache__
+│  │  │  │  ├─ __init__.cpython-312.pyc
+│  │  │  │  ├─ analytics.cpython-312.pyc
+│  │  │  │  ├─ auth.cpython-312.pyc
+│  │  │  │  ├─ feedback.cpython-312.pyc
+│  │  │  │  ├─ health.cpython-312.pyc
+│  │  │  │  ├─ history.cpython-312.pyc
+│  │  │  │  ├─ internal_notifications.cpython-312.pyc
+│  │  │  │  ├─ me.cpython-312.pyc
+│  │  │  │  ├─ meta.cpython-312.pyc
+│  │  │  │  ├─ notifications.cpython-312.pyc
+│  │  │  │  ├─ opportunities.cpython-312.pyc
+│  │  │  │  ├─ profiles.cpython-312.pyc
+│  │  │  │  ├─ recommendations.cpython-312.pyc
+│  │  │  │  └─ subscriptions.cpython-312.pyc
 │  │  │  ├─ analytics.py
 │  │  │  ├─ auth.py
 │  │  │  ├─ feedback.py
 │  │  │  ├─ health.py
 │  │  │  ├─ history.py
+│  │  │  ├─ internal_notifications.py
 │  │  │  ├─ me.py
 │  │  │  ├─ meta.py
 │  │  │  ├─ notifications.py
@@ -33,22 +61,99 @@ aiesec_match
 │  │  │  ├─ profiles.py
 │  │  │  ├─ recommendations.py
 │  │  │  └─ subscriptions.py
-│  │  ├─ auth
-│  │  ├─ auth.py
-│  │  ├─ catalog.py
-│  │  ├─ completeness.py
+│  │  ├─ application
+│  │  │  ├─ __init__.py
+│  │  │  ├─ __pycache__
+│  │  │  │  ├─ __init__.cpython-312.pyc
+│  │  │  │  ├─ analytics_service.cpython-312.pyc
+│  │  │  │  ├─ auth_service.cpython-312.pyc
+│  │  │  │  ├─ catalog_service.cpython-312.pyc
+│  │  │  │  ├─ consent_service.cpython-312.pyc
+│  │  │  │  ├─ deps.cpython-312.pyc
+│  │  │  │  ├─ dto_mappers.cpython-312.pyc
+│  │  │  │  ├─ feedback_service.cpython-312.pyc
+│  │  │  │  ├─ history_service.cpython-312.pyc
+│  │  │  │  ├─ link_code_service.cpython-312.pyc
+│  │  │  │  ├─ matching_service.cpython-312.pyc
+│  │  │  │  ├─ me_service.cpython-312.pyc
+│  │  │  │  ├─ meta_service.cpython-312.pyc
+│  │  │  │  ├─ notification_service.cpython-312.pyc
+│  │  │  │  ├─ profile_service.cpython-312.pyc
+│  │  │  │  └─ subscription_service.cpython-312.pyc
+│  │  │  ├─ analytics_service.py
+│  │  │  ├─ auth_service.py
+│  │  │  ├─ catalog_service.py
+│  │  │  ├─ consent_service.py
+│  │  │  ├─ deps.py
+│  │  │  ├─ dto_mappers.py
+│  │  │  ├─ feedback_service.py
+│  │  │  ├─ history_service.py
+│  │  │  ├─ link_code_service.py
+│  │  │  ├─ matching_service.py
+│  │  │  ├─ me_service.py
+│  │  │  ├─ meta_service.py
+│  │  │  ├─ notification_service.py
+│  │  │  ├─ profile_service.py
+│  │  │  └─ subscription_service.py
 │  │  ├─ config.py
 │  │  ├─ db.py
+│  │  ├─ domain
+│  │  │  ├─ __init__.py
+│  │  │  ├─ __pycache__
+│  │  │  │  ├─ __init__.cpython-312.pyc
+│  │  │  │  ├─ age.cpython-312.pyc
+│  │  │  │  ├─ completeness.cpython-312.pyc
+│  │  │  │  └─ scoring.cpython-312.pyc
+│  │  │  ├─ age.py
+│  │  │  ├─ completeness.py
+│  │  │  └─ scoring.py
 │  │  ├─ errors.py
 │  │  ├─ forms
-│  │  │  └─ form_schema.v1.yaml
+│  │  │  ├─ consents.v1.yaml
+│  │  │  └─ form_schema.v2.yaml
 │  │  ├─ formschema.py
+│  │  ├─ infrastructure
+│  │  │  ├─ __init__.py
+│  │  │  ├─ __pycache__
+│  │  │  │  ├─ __init__.cpython-312.pyc
+│  │  │  │  ├─ matcher_client.cpython-312.pyc
+│  │  │  │  ├─ telegram_adapter.cpython-312.pyc
+│  │  │  │  └─ time_utils.cpython-312.pyc
+│  │  │  ├─ matcher_client.py
+│  │  │  ├─ models
+│  │  │  │  ├─ __init__.py
+│  │  │  │  ├─ __pycache__
+│  │  │  │  │  ├─ __init__.cpython-312.pyc
+│  │  │  │  │  ├─ catalog.cpython-312.pyc
+│  │  │  │  │  └─ core.cpython-312.pyc
+│  │  │  │  ├─ catalog.py
+│  │  │  │  └─ core.py
+│  │  │  ├─ repositories
+│  │  │  │  ├─ __init__.py
+│  │  │  │  ├─ __pycache__
+│  │  │  │  │  ├─ __init__.cpython-312.pyc
+│  │  │  │  │  ├─ catalog_repo.cpython-312.pyc
+│  │  │  │  │  ├─ consent_repo.cpython-312.pyc
+│  │  │  │  │  ├─ feedback_repo.cpython-312.pyc
+│  │  │  │  │  ├─ link_code_repo.cpython-312.pyc
+│  │  │  │  │  ├─ outbox_repo.cpython-312.pyc
+│  │  │  │  │  ├─ profile_repo.cpython-312.pyc
+│  │  │  │  │  ├─ run_repo.cpython-312.pyc
+│  │  │  │  │  ├─ subscription_repo.cpython-312.pyc
+│  │  │  │  │  └─ user_repo.cpython-312.pyc
+│  │  │  │  ├─ catalog_repo.py
+│  │  │  │  ├─ consent_repo.py
+│  │  │  │  ├─ feedback_repo.py
+│  │  │  │  ├─ link_code_repo.py
+│  │  │  │  ├─ outbox_repo.py
+│  │  │  │  ├─ profile_repo.py
+│  │  │  │  ├─ run_repo.py
+│  │  │  │  ├─ subscription_repo.py
+│  │  │  │  └─ user_repo.py
+│  │  │  ├─ telegram_adapter.py
+│  │  │  └─ time_utils.py
 │  │  ├─ main.py
-│  │  ├─ matcher_client.py
-│  │  ├─ models.py
-│  │  ├─ schemas.py
-│  │  └─ workers
-│  │     └─ outbox.py
+│  │  └─ schemas.py
 │  ├─ migrations
 │  │  ├─ README
 │  │  ├─ env.py
@@ -58,25 +163,29 @@ aiesec_match
 │  │     ├─ 0002_auth.py
 │  │     ├─ 0003_auth.py
 │  │     ├─ 0004_feedback_unique.py
+│  │     ├─ 0005_drop_anonymous.py
+│  │     ├─ 0006_missing_scenarios.py
 │  │     └─ __pycache__
 │  │        ├─ 0001_core.cpython-312.pyc
 │  │        └─ 71ae476ee49e_.cpython-312.pyc
 │  ├─ openapi
 │  │  └─ backend.v1.json
 │  ├─ pytest.ini
-│  └─ tests
-│     ├─ conftest.py
-│     ├─ test_age.py
-│     ├─ test_api_auth.py
-│     ├─ test_api_feedback.py
-│     ├─ test_api_profiles.py
-│     ├─ test_api_recommendations.py
-│     ├─ test_auth_unit.py
-│     ├─ test_completeness.py
-│     ├─ test_concurrency.py
-│     ├─ test_errors.py
-│     ├─ test_matcher_client.py
-│     └─ test_schemas_unit.py
+│  ├─ tests
+│  │  ├─ conftest.py
+│  │  ├─ test_age.py
+│  │  ├─ test_api_auth.py
+│  │  ├─ test_api_feedback.py
+│  │  ├─ test_api_profiles.py
+│  │  ├─ test_api_recommendations.py
+│  │  ├─ test_auth_unit.py
+│  │  ├─ test_completeness.py
+│  │  ├─ test_concurrency.py
+│  │  ├─ test_errors.py
+│  │  ├─ test_matcher_client.py
+│  │  └─ test_schemas_unit.py
+│  └─ workers
+│     └─ outbox.py
 ├─ docker-compose.dev.yml
 ├─ docker-compose.test.yml
 ├─ docker-compose.yml
@@ -322,6 +431,11 @@ aiesec_match
    │  ├─ sort-arrow-sprite.png
    │  ├─ sorter.js
    │  └─ theme.js
+   ├─ dist
+   │  ├─ assets
+   │  │  ├─ index-BpcgN5Bj.js
+   │  │  └─ index-C_Y0ROFh.css
+   │  └─ index.html
    ├─ eslint.config.js
    ├─ index.html
    ├─ package-lock.json
@@ -349,12 +463,14 @@ aiesec_match
    │  │     └─ RecItemCard.tsx
    │  ├─ features
    │  │  ├─ account
+   │  │  │  ├─ AccountSecurityForm.tsx
    │  │  │  ├─ DeleteAccountDialog.tsx
    │  │  │  └─ LinkTelegramPanel.tsx
    │  │  ├─ auth
    │  │  │  └─ AuthContext.tsx
+   │  │  ├─ consent
+   │  │  │  └─ ConsentSettings.tsx
    │  │  ├─ dashboard
-   │  │  │  └─ useDashboardPreferences.ts
    │  │  ├─ feedback
    │  │  │  └─ useSendFeedback.ts
    │  │  ├─ questionnaire
@@ -377,16 +493,18 @@ aiesec_match
    │  │  │  └─ HistoryPage.tsx
    │  │  ├─ login
    │  │  │  └─ LoginPage.tsx
+   │  │  ├─ notifications
+   │  │  │  └─ NotificationsPage.tsx
    │  │  ├─ onboarding
    │  │  │  └─ OnboardingPage.tsx
+   │  │  ├─ opportunities
    │  │  ├─ opportunity
    │  │  │  └─ OpportunityPage.tsx
    │  │  ├─ profile
    │  │  │  ├─ FavoritesPage.tsx
    │  │  │  ├─ ProfileEditPage.tsx
    │  │  │  ├─ ProfilePage.tsx
-   │  │  │  ├─ ProfileStatisticsPage.tsx
-   │  │  │  └─ StatisticsSettingsPage.tsx
+   │  │  │  └─ ProfileStatisticsPage.tsx
    │  │  ├─ register
    │  │  │  └─ RegisterPage.tsx
    │  │  ├─ results
@@ -423,6 +541,7 @@ aiesec_match
    │  │  │  └─ password.ts
    │  │  ├─ styles
    │  │  │  ├─ global.css
+   │  │  │  ├─ layout.css
    │  │  │  └─ tokens.css
    │  │  └─ ui
    │  │     ├─ AuthCard.tsx
@@ -464,8 +583,6 @@ aiesec_match
    │  │  ├─ setup.ts
    │  │  └─ utils.tsx
    │  └─ widgets
-   │     ├─ DashboardCustomizer.tsx
-   │     ├─ GuestBanner.tsx
    │     ├─ MainNavigation.tsx
    │     ├─ OnboardingWizard.tsx
    │     ├─ ProfileCompleteness.tsx

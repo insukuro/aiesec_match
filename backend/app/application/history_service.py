@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
-
-from sqlalchemy import case, literal, select, union_all
+from sqlalchemy import String, case, func, literal, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..infrastructure.models import Feedback, RecommendationRun
@@ -31,14 +29,19 @@ class HistoryService:
         signal_filter = type[len("signal_"):] if (type and type.startswith("signal_")) else None
 
         parts = []
+
         if include_runs:
             runs = (
                 select(
-                    literal("run_finished").label("type"),
+                    literal("run_finished").label("event_type"),
                     RecommendationRun.finished_at.label("occurred_at"),
                     literal("Подбор завершён").label("title"),
-                    ("Найдено " + RecommendationRun.total_candidates.cast(str) + " кандидатов").label("description"),
-                    RecommendationRun.run_id.cast(str).label("related_entity_id"),
+                    func.concat(
+                        literal("Найдено "),
+                        func.coalesce(RecommendationRun.total_candidates, 0),
+                        literal(" кандидатов"),
+                    ).label("description"),
+                    func.cast(RecommendationRun.run_id, String).label("entity_id"),
                 )
                 .where(
                     RecommendationRun.user_id == user_id,
@@ -54,20 +57,23 @@ class HistoryService:
 
         if include_feedback:
             title_expr = case(
-                (Feedback.signal == "liked", "Понравилось"),
-                (Feedback.signal == "disliked", "Не понравилось"),
-                (Feedback.signal == "hidden", "Скрыто"),
-                (Feedback.signal == "applied", "Отклик отправлен"),
-                (Feedback.signal == "opened", "Открыто"),
+                (Feedback.signal == "liked", literal("Понравилось")),
+                (Feedback.signal == "disliked", literal("Не понравилось")),
+                (Feedback.signal == "hidden", literal("Скрыто")),
+                (Feedback.signal == "applied", literal("Отклик отправлен")),
+                (Feedback.signal == "opened", literal("Открыто")),
                 else_=Feedback.signal,
             )
             fb = (
                 select(
-                    ("signal_" + Feedback.signal).label("type"),
+                    func.concat(literal("signal_"), Feedback.signal).label("event_type"),
                     Feedback.created_at.label("occurred_at"),
                     title_expr.label("title"),
-                    ("Вакансия #" + Feedback.opportunity_id.cast(str)).label("description"),
-                    Feedback.opportunity_id.cast(str).label("related_entity_id"),
+                    func.concat(
+                        literal("Вакансия #"),
+                        func.cast(Feedback.opportunity_id, String),
+                    ).label("description"),
+                    func.cast(Feedback.opportunity_id, String).label("entity_id"),
                 )
                 .where(Feedback.user_id == user_id)
             )
@@ -83,25 +89,31 @@ class HistoryService:
             return {"items": [], "total": 0, "limit": limit, "offset": offset}
 
         union = union_all(*parts).subquery("events")
+
         rows = (await self._s.execute(
-            select(union)
+            select(
+                union.c.event_type,
+                union.c.occurred_at,
+                union.c.title,
+                union.c.description,
+                union.c.entity_id,
+            )
             .order_by(union.c.occurred_at.desc())
             .limit(limit).offset(offset)
         )).all()
+
         total = (await self._s.execute(
-            select(union.c.type).select_from(union).with_only_columns(
-                __import__("sqlalchemy").func.count()
-            )
+            select(func.count()).select_from(union)
         )).scalar_one()
 
         items = [
             {
-                "event_id": f"{r.type}:{r.related_entity_id}:{r.occurred_at.isoformat()}",
-                "type": r.type,
+                "event_id": f"{r.event_type}:{r.entity_id}:{r.occurred_at.isoformat()}",
+                "type": r.event_type,
                 "occurred_at": r.occurred_at,
                 "title": r.title,
                 "description": r.description,
-                "related_entity_id": r.related_entity_id,
+                "related_entity_id": r.entity_id,
             }
             for r in rows
         ]

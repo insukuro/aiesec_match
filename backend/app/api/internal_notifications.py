@@ -6,7 +6,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..application.link_code_service import LinkCodeService
 from ..application.notification_service import NotificationService
 from ..db import get_session
-from ..schemas import LinkCodeConfirmIn
 
 router = APIRouter(tags=["internal"])
 

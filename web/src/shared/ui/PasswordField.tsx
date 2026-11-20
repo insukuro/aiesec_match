@@ -43,7 +43,7 @@ export function PasswordField({
           aria-label={visible ? "Скрыть пароль" : "Показать пароль"}
           onClick={() => setVisible((v) => !v)}
         >
-          {visible ? "🙈" : "👁"}
+          {visible ? "Скрыть" : "Показать"}
         </button>
       </div>
       {showStrength && value.length > 0 && (
