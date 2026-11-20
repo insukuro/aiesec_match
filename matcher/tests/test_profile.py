@@ -9,15 +9,22 @@ from app.domain.profile import build_profile
 from app.schemas import ProfileSnapshot
 
 
+MARKETING_SK = {11186, 11176, 11205, 11193}
+SALES_SK = {10161, 11195, 10163}
+
+
 def profile(**kw):
     return build_profile(ProfileSnapshot(**kw))
 
 
 @pytest.mark.parametrize("spheres, backgrounds, skills", [
-    (["marketing"], {10253}, set()),
-    (["sales"], {21677}, {10161}),
-    (["marketing", "sales"], {10253, 21677}, {10161}),
+    (["marketing"], {10253}, MARKETING_SK),
+    (["sales"], {21677}, SALES_SK),
+    (["marketing", "sales"], {10253, 21677}, MARKETING_SK | SALES_SK),
     (["teaching_kids"], {10241}, {10162}),            # teaching_* ловит любое teaching_...
+    (["teaching"], {10241}, {10162, 10157}),          # активность teaching без _ это отдельный ключ
+    (["it"], {10239, 10268, 10238, 11298}, {11260, 11180}),
+    (["events"], set(), {11187, 10156}),              # активность без образования
     (["космонавтика"], set(), set()),                  # неизвестная сфера не ошибка
 ])
 def test_spheres_become_backgrounds_and_skills(spheres, backgrounds, skills):
@@ -26,13 +33,41 @@ def test_spheres_become_backgrounds_and_skills(spheres, backgrounds, skills):
 
 def test_activities_and_study_field_count_too():
     p = profile(activities=["sales"], study={"field": "marketing"})
-    assert p.background_ids == {10253, 21677} and p.skill_ids == {10161}
+    assert p.background_ids == {10253, 21677} and p.skill_ids == MARKETING_SK | SALES_SK
 
 def test_languages_nationality_study_level():
     p = profile(other_languages=["ru", "es", "xx"], nationality="AZ", study={"status": "school"})
     assert p.language_ids == {10043, 10048}
     assert p.nationality_id == 10353
     assert p.study_level_ids == {10782}
+
+def test_english_in_other_languages_does_not_bypass_threshold():
+    # en нет в taxonomy.languages: английский считается только по english_level
+    p = profile(english_level="A1", other_languages=["en", "ru"])
+    assert p.language_ids == {10043}
+    assert p.languages_for("B1") == {10043}
+
+
+def test_every_form_option_is_in_taxonomy():
+    # все сферы и активности, которые предлагает анкета backend (meta_service.STATIC_OPTIONS)
+    from app.domain.profile import load_taxonomy
+    form = {"it", "marketing", "sales", "finance", "hr", "design", "engineering", "education",
+            "healthcare", "ngo", "teaching", "events", "ecology", "community", "culture", "sports"}
+    assert form <= set(load_taxonomy()["spheres"])
+
+
+def test_taxonomy_ids_exist_in_dictionaries():
+    # опечатка в коде не должна пройти незамеченной: каждый id есть в справочнике app/data
+    from app.deps import load_dictionaries
+    from app.domain.profile import load_taxonomy
+    d = load_dictionaries()
+    known = {name: {x["id"] for x in d[name]} for name in ("backgrounds", "skills", "languages")}
+    tax = load_taxonomy()
+    for key, m in tax["spheres"].items():
+        assert set(m["backgrounds"]) <= known["backgrounds"], key
+        assert set(m["skills"]) <= known["skills"], key
+    assert set(tax["languages"].values()) <= known["languages"]
+
 
 def test_english_is_added_only_from_threshold():
     p = profile(english_level="B1", other_languages=["ru"])

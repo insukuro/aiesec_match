@@ -142,7 +142,7 @@ export interface Page<T> {
 export interface RecItem {
   rank: number;
   score: number;
-  label: MatchLabel;
+  label?: MatchLabel | null; 
   family: { family_key: string | null; siblings_count: number };
   opportunity: OpportunityCard;
   reasons: Array<{ code: string; polarity: "positive" | "negative"; weight: number; text: string }>;

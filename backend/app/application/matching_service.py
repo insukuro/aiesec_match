@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
 from ..domain.completeness import missing_for_match
-from ..domain.scoring import label, programme_prior
+from ..domain.scoring import programme_prior
 from ..errors import ProfileIncomplete, ProfileNotFound, RunNotFound
 from ..infrastructure.matcher_client import MatcherClient
 from ..infrastructure.repositories.catalog_repo import CatalogRepo
@@ -68,7 +68,7 @@ class MatchingService:
             k: v.body.get(k) for k in (
                 "programmes", "english_level", "study", "work_experience", "spheres",
                 "activities", "desired_countries", "duration", "start_window",
-                "financial", "nationality",
+                "financial", "nationality", "other_languages", "preferred_lc_ids",
             )
             if v.body.get(k) is not None
         }
@@ -117,6 +117,7 @@ class MatchingService:
                     opportunity_id=it["opportunity_id"],
                     family_key=c.family_key,
                     score=it["score"],
+                    label=it.get("label"),                       # ← новое: matcher уже посчитал
                     breakdown=it.get("breakdown", {}),
                     reasons=it.get("reasons", []),
                 )
@@ -182,7 +183,7 @@ class MatchingService:
             g["items"].append({
                 "rank": it.rank,
                 "score": float(it.score),
-                "label": label(float(it.score)),
+                "label": it.label,                           # ← было: label(float(it.score))
                 "family": {"family_key": c.family_key, "siblings_count": 0},
                 "opportunity": card_dto(c, reqs.get(it.opportunity_id, [])),
                 "reasons": it.reasons,

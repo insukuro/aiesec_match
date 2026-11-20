@@ -140,9 +140,9 @@ class RecommendationItem(Base):
     opportunity_id: Mapped[int] = mapped_column(Integer)
     family_key: Mapped[str | None] = mapped_column(String(120))
     score: Mapped[Decimal] = mapped_column(Numeric(5, 4))
+    label: Mapped[str | None] = mapped_column(String(16))          # ← новое
     breakdown: Mapped[dict] = mapped_column(JSONB, default=dict)
     reasons: Mapped[list] = mapped_column(JSONB, default=list)
-
 
 class Feedback(Base):
     __tablename__ = "feedback"

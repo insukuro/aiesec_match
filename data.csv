@@ -1,0 +1,566 @@
+background,10224,Accounting
+background,10225,Aerospace engineering
+background,10226,Agriculture
+background,10228,Architecture
+background,10229,Arts
+background,10230,Automotive engineering
+background,10231,Banking
+background,10232,Biology
+background,10233,Business administration
+background,10234,Chemical engineering
+background,10235,Chemistry
+background,10236,Civil engineering
+background,10237,Communication & journalism
+background,10238,Computer engineering
+background,10239,Computer sciences
+background,10240,Economics
+background,10241,Education
+background,10242,Electrical engineering
+background,10243,Electronics engineering
+background,10244,Environmental engineering
+background,10245,Finance
+background,10246,Geography
+background,10247,Graphic design
+background,10248,Industrial engineering
+background,10249,International relations
+background,10250,Law
+background,10251,Linguistics
+background,10252,Literature
+background,10253,Marketing
+background,10254,Material engineering
+background,10255,Mathematics
+background,10256,Mechanical engineering
+background,10257,Medicine
+background,10261,Physics
+background,10262,Political science
+background,10263,Psychology
+background,10264,Public administration
+background,10265,Public relations
+background,10267,Sociology
+background,10268,Software development and programming
+background,10269,Telecommunication Engineering
+background,10270,Tourism & hotel management
+background,10271,Other
+background,11277,Audit
+background,11278,Bioengineering
+background,11279,Biomedical Science
+background,11280,Design
+background,11281,Earth Sciences
+background,11282,Ecology
+background,11283,Entrepreneurship
+background,11284,Health Science
+background,11286,Human Resources
+background,11288,International Trade
+background,11289,Languages
+background,11290,Logistics
+background,11291,Media Arts
+background,11292,Music
+background,11293,Nursing
+background,11295,Social Work
+background,11296,Sports
+background,11297,Statistics
+background,11298,Systems and Computing Engineering
+background,11299,Theatre
+background,21247,Veterinarian
+background,21248,Nutrition
+background,21677,Sales
+background,22072,Sustainability
+background,22303,Food Engineering
+background,22304,Food Science
+kind,constant_id,constant_name
+language,10006,Arabic
+language,10009,Bahasa Indonesian
+language,10011,Bulgarian
+language,10012,Chinese
+language,10014,"Chinese, Mandarin"
+language,10018,English
+language,10022,French
+language,10024,German
+language,10025,Greek
+language,10027,Hindi
+language,10028,Hungarian
+language,10031,Italian
+language,10032,Japanese
+language,10034,Korean
+language,10041,Portuguese
+language,10042,Romanian
+language,10043,Russian
+language,10045,"Slavic (Bosnian, Serbian, Croatian)"
+language,10048,Spanish
+language,10051,Turkish
+language,10052,Ukrainian
+language,10054,Vietnamese
+nationality,10340,Afghanistan
+nationality,10341,Albania
+nationality,10342,Algeria
+nationality,10343,American Samoa
+nationality,10344,Andorra
+nationality,10345,Angola
+nationality,10346,Anguilla
+nationality,10347,Antigua and Barbuda
+nationality,10348,Argentina
+nationality,10349,Armenia
+nationality,10350,Aruba
+nationality,10351,Australia
+nationality,10352,Austria
+nationality,10353,Azerbaijan
+nationality,10354,Bahamas
+nationality,10355,Bahrain
+nationality,10356,Bangladesh
+nationality,10357,Barbados
+nationality,10358,Belarus
+nationality,10359,Belgium
+nationality,10360,Belize
+nationality,10361,Benin
+nationality,10362,Bermuda
+nationality,10363,Bhutan
+nationality,10364,Bolivia
+nationality,10365,Bosnia-Herzegovina
+nationality,10366,Botswana
+nationality,10367,Brazil
+nationality,10368,British Indian Ocean Territory
+nationality,10369,Brunei Darussalam
+nationality,10370,Bulgaria
+nationality,10371,Burkina Faso
+nationality,10372,Burundi
+nationality,10373,Cambodia
+nationality,10374,Cameroon
+nationality,10375,Canada
+nationality,10376,Cabo Verde
+nationality,10377,Cayman Islands
+nationality,10378,Central African Republic
+nationality,10379,Chad
+nationality,10380,Chile
+nationality,10381,Mainland of China
+nationality,10382,Colombia
+nationality,10383,Comoros
+nationality,10384,Congo
+nationality,10385,"Congo, The Democratic Republic Of The"
+nationality,10386,Cook Islands
+nationality,10387,Costa Rica
+nationality,10388,Cote D'Ivoire
+nationality,10389,Croatia
+nationality,10390,Cuba
+nationality,10391,Cyprus
+nationality,10392,Czech Republic
+nationality,10393,Denmark
+nationality,10394,Djibouti
+nationality,10395,Dominica
+nationality,10396,Dominican Republic
+nationality,10397,East Timor
+nationality,10398,Ecuador
+nationality,10399,Egypt
+nationality,10400,El Salvador
+nationality,10401,Equatorial Guinea
+nationality,10402,Eritrea
+nationality,10403,Estonia
+nationality,10404,Ethiopia
+nationality,10405,Falkland Islands (Malvinas)
+nationality,10406,Faroe Islands
+nationality,10407,Fiji
+nationality,10408,Finland
+nationality,10409,France
+nationality,10410,French Guiana
+nationality,10411,French Polynesia
+nationality,10412,Georgia
+nationality,10413,Gibraltar
+nationality,10414,Grenada
+nationality,10415,Guadeloupe
+nationality,10416,Guam
+nationality,10417,Guatemala
+nationality,10418,Guinea
+nationality,10419,Guinea-Bissau
+nationality,10420,Haiti
+nationality,10421,Holy See (Vatican City State)
+nationality,10422,Honduras
+nationality,10423,Hong Kong
+nationality,10424,Hungary
+nationality,10425,Iran
+nationality,10426,Ireland
+nationality,10427,Italy
+nationality,10428,Korea
+nationality,10429,"Korea, Democratic Peoples Republic Of"
+nationality,10430,Kuwait
+nationality,10431,Laos
+nationality,10432,Germany
+nationality,10433,Lesotho
+nationality,10434,Liechtenstein
+nationality,10435,Lithuania
+nationality,10436,Luxembourg
+nationality,10437,Macau
+nationality,10438,Madagascar
+nationality,10439,Malawi
+nationality,10440,Maldives
+nationality,10441,Mauritania
+nationality,10442,Mexico
+nationality,10443,Moldova
+nationality,10444,Monaco
+nationality,10445,Mongolia
+nationality,10446,Montenegro
+nationality,10447,Montserrat
+nationality,10448,Namibia
+nationality,10449,Nauru
+nationality,10450,Netherlands Antilles
+nationality,10451,New Zealand
+nationality,10452,Nicaragua
+nationality,10453,Niger
+nationality,10454,Nigeria
+nationality,10455,Niue
+nationality,10456,Norway
+nationality,10457,Norfolk Island
+nationality,10458,Oman
+nationality,10459,Paraguay
+nationality,10460,Portugal
+nationality,10461,Qatar
+nationality,10462,Reunion
+nationality,10463,Russia
+nationality,10464,Serbia
+nationality,10465,Singapore
+nationality,10466,Suriname
+nationality,10467,Swaziland
+nationality,10468,Switzerland
+nationality,10469,Taiwan
+nationality,10470,Tanzania
+nationality,10471,Turkmenistan
+nationality,10472,Tuvalu
+nationality,10473,United States Minor Outlying Islands
+nationality,10474,Ghana
+nationality,10475,Greece
+nationality,10476,Greenland
+nationality,10477,Guyana
+nationality,10478,Iceland
+nationality,10479,India
+nationality,10480,Indonesia
+nationality,10481,Iraq
+nationality,10482,Israel
+nationality,10483,Jamaica
+nationality,10484,Jordan
+nationality,10485,Kenya
+nationality,10486,Kazakhstan
+nationality,10487,Kiribati
+nationality,10488,Kyrgyzstan
+nationality,10489,Laos People's Democratic Republic
+nationality,10490,Latvia
+nationality,10491,Lebanon
+nationality,10492,Liberia
+nationality,10493,Libyan Arab Jamahiriya
+nationality,10494,Malaysia
+nationality,10495,Mali
+nationality,10496,Malta
+nationality,10497,Marshall Islands
+nationality,10498,Martinique
+nationality,10499,Mauritius
+nationality,10500,Mayotte
+nationality,10501,"Micronesia, Federated States Of"
+nationality,10502,Morocco
+nationality,10503,Mozambique
+nationality,10504,Myanmar
+nationality,10505,Nepal
+nationality,10506,New Caledonia
+nationality,10507,Pakistan
+nationality,10508,Palau
+nationality,10509,Panama
+nationality,10510,Papua New Guinea
+nationality,10511,Peru
+nationality,10512,Pitcairn
+nationality,10513,Poland
+nationality,10514,Puerto Rico
+nationality,10515,Republic Of Macedonia
+nationality,10516,Romania
+nationality,10517,Rwanda
+nationality,10518,Saint Helena
+nationality,10519,Saint Kitts And Nevis
+nationality,10520,Saint Lucia
+nationality,10521,Saint Pierre And Miquelon
+nationality,10522,Saint Vincent And The Grenadines
+nationality,10523,Samoa
+nationality,10524,San Marino
+nationality,10525,Saudi Arabia
+nationality,10526,Senegal
+nationality,10527,Seychelles
+nationality,10528,Sierra Leone
+nationality,10529,Slovakia
+nationality,10530,Slovenia
+nationality,10531,Solomon Islands
+nationality,10532,Somalia
+nationality,10533,South Africa
+nationality,10534,Spain
+nationality,10535,Sri Lanka
+nationality,10536,Sudan
+nationality,10537,Sweden
+nationality,10538,Syrian Arab Republic
+nationality,10539,Tajikistan
+nationality,10540,Thailand
+nationality,10541,The Netherlands
+nationality,10542,The Philippines
+nationality,10543,Togo
+nationality,10544,Tonga
+nationality,10545,Trinidad And Tobago
+nationality,10546,Tunisia
+nationality,10547,Turkey
+nationality,10548,Uganda
+nationality,10549,Ukraine
+nationality,10550,United Arab Emirates
+nationality,10551,United Kingdom
+nationality,10552,United States
+nationality,10553,Gabon
+nationality,10554,Gambia
+nationality,10555,Japan
+nationality,10556,Sao Tome And Principe
+nationality,10557,Uruguay
+nationality,10558,Uzbekistan
+nationality,10559,Vanuatu
+nationality,10560,Venezuela
+nationality,10561,Vietnam
+nationality,10562,"Virgin Islands, British"
+nationality,10563,"Virgin Islands, U.S."
+nationality,10564,Western Sahara
+nationality,10565,Yemen
+nationality,10566,Zambia
+nationality,10567,Zimbabwe
+nationality,11322,Palestine
+skill,10056,Personal skills and knowledge
+skill,10058,First Aid
+skill,10059,Community Development
+skill,10060,Programming skills
+skill,10061,C
+skill,10062,C++
+skill,10065,HTML
+skill,10066,Java
+skill,10069,Javascript
+skill,10071,SQL
+skill,10072,C#
+skill,10075,Visual Basic
+skill,10076,PHP
+skill,10077,Python
+skill,10079,CSS
+skill,10087,HTML 5
+skill,10089,Assembly
+skill,10091,Network management and data transmission
+skill,10094,TCP/IP
+skill,10095,LAN (local area network)
+skill,10100,Network Design
+skill,10101,Network security
+skill,10109,Windows
+skill,10110,MacOS
+skill,10112,Android
+skill,10113,iOS
+skill,10116,PeopleSoft
+skill,10118,Microsoft Dynamics
+skill,10126,Development Environment (IDE)
+skill,10128,Database design
+skill,10130,Other Development Tools
+skill,10132,Visual Studio
+skill,10136,Databases
+skill,10137,Microsoft Access
+skill,10142,PostgreSQL
+skill,10143,MySQL
+skill,10145,MongoDB
+skill,10146,Graphics and Design
+skill,10147,3D Max
+skill,10148,Auto-CAD
+skill,10149,Corel Draw
+skill,10150,Adobe Illustrator
+skill,10151,Photoshop
+skill,10153,Professional Skills
+skill,10154,Organisational Management
+skill,10155,Team Management
+skill,10156,Project Management
+skill,10157,Training
+skill,10158,Leadership
+skill,10159,Presentation skills
+skill,10160,Financial management
+skill,10161,Sales
+skill,10162,Language Teaching
+skill,10163,Client servicing
+skill,10164,Computer
+skill,10165,Windows PC usage
+skill,10167,Internet usage
+skill,10168,Mechanical Engineering
+skill,10169,Computer aided technical design
+skill,10170,Material Science
+skill,10171,Aerospace Engineering
+skill,10172,Fluid Mechanics
+skill,10173,Automotive Engineering
+skill,10174,Engineering Mechanics
+skill,10179,Machine Elements
+skill,10181,Thermodynamics
+skill,10182,Mass and Heat Transfer
+skill,10183,Construction Engineering
+skill,10185,Ergonomics
+skill,10187,Civil Engineering / Environmental Engineering
+skill,10188,Mechanics
+skill,10193,Technology of Building Materials
+skill,10200,Renewable Energies
+skill,10202,Waste & Water Management
+skill,10203,Ecology
+skill,10204,Software Development Frameworks
+skill,10218,Node.js
+skill,10220,Content Management Systems
+skill,10222,Wordpress
+skill,10782,High School
+skill,10783,Associate Degree
+skill,10785,Bachelor
+skill,10787,Masters
+skill,10789,Other tertiary education
+skill,11118,AIESEC Leadership qualities
+skill,11119,Empowerment of others
+skill,11120,Self Awareness
+skill,11121,Solution Orientation
+skill,11122,World citizenship
+skill,11124,AWS (Amazon Web Services)
+skill,11127,Google Drive
+skill,11129,Microsoft Excel
+skill,11130,Microsoft Powerpoint
+skill,11131,Microsoft Word
+skill,11134,Wix
+skill,11135,Database Administration
+skill,11136,Database Management
+skill,11140,Android studio
+skill,11142,Git
+skill,11148,Adobe After Effects
+skill,11149,Adobe Audition
+skill,11152,Adobe InDesign
+skill,11153,Adobe Lightroom
+skill,11154,Adobe Premiere Pro
+skill,11155,Filming
+skill,11156,Final Cut Pro
+skill,11157,Image editing
+skill,11158,iMovie
+skill,11160,Sharepoint
+skill,11161,Slack
+skill,11162,Workplace
+skill,11168,WiFi network setup
+skill,11169,Linux
+skill,11170,Adaptability
+skill,11171,Blogging
+skill,11172,Business Intelligence
+skill,11173,Coaching
+skill,11174,Collaboration
+skill,11175,Consulting
+skill,11176,Content Marketing
+skill,11177,Content Strategy
+skill,11178,Creativity
+skill,11179,Critical Thinking
+skill,11180,Data Analysis
+skill,11181,Data Analytics
+skill,11182,Data Engineering
+skill,11183,Data Mining
+skill,11184,Data Science
+skill,11185,Data Warehousing
+skill,11186,Digital Marketing
+skill,11187,Event Planning
+skill,11188,Facilitation
+skill,11189,Handling Pressure
+skill,11191,Human Resources
+skill,11192,Information Security
+skill,11193,Market Research
+skill,11194,Media Planning
+skill,11195,Negotiation
+skill,11196,Problem Solving
+skill,11197,Public Relations
+skill,11200,Relationship Management
+skill,11201,Research
+skill,11202,Risk Management
+skill,11203,Search Engine Optimization (SEO)
+skill,11204,Self-Confidence
+skill,11205,Social Media Management
+skill,11206,Strategic Planning
+skill,11208,Technical Support
+skill,11209,Time Management
+skill,11210,UI design
+skill,11211,UX design
+skill,11212,Web Content
+skill,11213,Work Ethic
+skill,11214,Writing
+skill,11217,Ada
+skill,11218,Algorithms
+skill,11221,Artificial Intelligence
+skill,11224,Boostrap
+skill,11225,Cloud Computing
+skill,11227,Dart
+skill,11232,Foundation
+skill,11233,Full Stack development
+skill,11234,Game Development
+skill,11246,MATLAB
+skill,11248,Mobile Development
+skill,11250,PL/SQL
+skill,11252,R
+skill,11260,Software Engineering
+skill,11263,Swift
+skill,11267,Agile development
+skill,11269,Express
+skill,11270,Extreme programming
+skill,11343,Object Oriented Programming
+skill,11651,"#of trainings for reading, mathematics or foreign language"
+skill,11668,# of boys and girls proficient in reading /mathematics/foreign language
+skill,20917,Angular
+skill,21052,Software Design
+skill,21053,Communication
+skill,21054,Analytical thinking
+skill,21055,Detail oriented
+skill,21057,Application design
+skill,21058,ETL
+skill,21059,Data Management
+skill_development,10059,Community Development
+skill_development,10091,Network management and data transmission
+skill_development,10119,Salesforce
+skill_development,10136,Databases
+skill_development,10146,Graphics and Design
+skill_development,10151,Photoshop
+skill_development,10153,Professional Skills
+skill_development,10154,Organisational Management
+skill_development,10155,Team Management
+skill_development,10156,Project Management
+skill_development,10158,Leadership
+skill_development,10159,Presentation skills
+skill_development,10160,Financial management
+skill_development,10161,Sales
+skill_development,10162,Language Teaching
+skill_development,10163,Client servicing
+skill_development,10164,Computer
+skill_development,10167,Internet usage
+skill_development,10168,Mechanical Engineering
+skill_development,10187,Civil Engineering / Environmental Engineering
+skill_development,10202,Waste & Water Management
+skill_development,10204,Software Development Frameworks
+skill_development,11118,AIESEC Leadership qualities
+skill_development,11119,Empowerment of others
+skill_development,11153,Adobe Lightroom
+skill_development,11155,Filming
+skill_development,11157,Image editing
+skill_development,11170,Adaptability
+skill_development,11172,Business Intelligence
+skill_development,11173,Coaching
+skill_development,11174,Collaboration
+skill_development,11175,Consulting
+skill_development,11176,Content Marketing
+skill_development,11177,Content Strategy
+skill_development,11178,Creativity
+skill_development,11179,Critical Thinking
+skill_development,11184,Data Science
+skill_development,11186,Digital Marketing
+skill_development,11187,Event Planning
+skill_development,11188,Facilitation
+skill_development,11189,Handling Pressure
+skill_development,11191,Human Resources
+skill_development,11193,Market Research
+skill_development,11194,Media Planning
+skill_development,11196,Problem Solving
+skill_development,11200,Relationship Management
+skill_development,11201,Research
+skill_development,11205,Social Media Management
+skill_development,11207,Strategy
+skill_development,11209,Time Management
+skill_development,11213,Work Ethic
+skill_development,11221,Artificial Intelligence
+skill_development,11233,Full Stack development
+skill_development,11260,Software Engineering
+skill_development,21052,Software Design
+skill_development,21053,Communication
+skill_development,21054,Analytical thinking
+study_level,10782,High School
+study_level,10783,Associate Degree
+study_level,10785,Bachelor
+study_level,10787,Masters
+study_level,10789,Other tertiary education

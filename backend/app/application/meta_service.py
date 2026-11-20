@@ -45,9 +45,12 @@ STATIC_OPTIONS = {
         {"code": "education", "label": "Образование"},
         {"code": "healthcare", "label": "Медицина"},
         {"code": "ngo", "label": "НКО и социальные проекты"},
+        {"code": "entrepreneurship", "label": "Предпринимательство"}, 
     ],
     "activities": [
         {"code": "teaching", "label": "Преподавание"},
+        {"code": "teaching_kids", "label": "Преподавание детям"}, 
+        {"code": "teaching_english", "label": "Преподавание английского"}, 
         {"code": "events", "label": "Организация мероприятий"},
         {"code": "ecology", "label": "Экология"},
         {"code": "community", "label": "Работа с сообществом"},

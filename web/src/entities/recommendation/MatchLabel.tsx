@@ -7,7 +7,9 @@ const MAP: Record<ML, { text: string; tone: "success" | "blue" | "warning" }> = 
   fair: { text: "Средне", tone: "warning" },
 };
 
-export function MatchLabel({ label }: { label: ML }) {
+export function MatchLabel({ label }: { label: ML | null | undefined }) {
+  if (!label) return null;
   const m = MAP[label];
+  if (!m) return null;
   return <Badge tone={m.tone}>{m.text}</Badge>;
 }

@@ -54,14 +54,16 @@ class RunRepo:
 
     async def add_item(
         self,
+        *,
         run_id: uuid.UUID,
         programme_kind: str,
         rank: int,
         opportunity_id: int,
         family_key: str | None,
         score: float,
-        breakdown: dict[str, Any],
-        reasons: list[dict],
+        label: str | None,
+        breakdown: dict,
+        reasons: list,
     ) -> None:
         self._s.add(RecommendationItem(
             run_id=run_id,
@@ -70,8 +72,9 @@ class RunRepo:
             opportunity_id=opportunity_id,
             family_key=family_key,
             score=score,
-            breakdown=breakdown or {},
-            reasons=reasons or [],
+            label=label,
+            breakdown=breakdown,
+            reasons=reasons,
         ))
 
     async def latest_succeeded(self, user_id: uuid.UUID) -> RecommendationRun | None:

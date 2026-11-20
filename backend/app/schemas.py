@@ -212,7 +212,7 @@ class RecommendationRunSummary(BaseModel):
 class RecItem(BaseModel):
     rank: int
     score: float
-    label: Literal["excellent", "good", "fair"]
+    label: str | None = None 
     family: dict[str, Any]
     opportunity: OpportunityCard
     reasons: list[dict[str, Any]]
