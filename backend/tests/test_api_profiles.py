@@ -11,9 +11,9 @@ async def test_get_me_profile_not_found(client, auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_put_profile_without_consent(client, auth_headers):
-    r = await client.put("/api/v1/profiles/me", json=VALID_PROFILE, headers=auth_headers)
-    assert r.status_code == 403
+async def test_put_profile_without_consent(client, bare_user):
+    r = await client.put("/api/v1/profiles/me", json=VALID_PROFILE, headers=bare_user.headers)
+    assert r.status_code == 409
     assert r.json()["type"] == "/problems/consent-required"
 
 

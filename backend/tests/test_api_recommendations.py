@@ -27,7 +27,7 @@ async def _setup_profile(client, headers):
     """consent + profile через API, как в реальном флоу."""
     r = await client.post(
         "/api/v1/me/consents",
-        json={"kind": "pd_processing", "version": "1"},
+        json={"kind": "pd_processing", "version": "2.0"},
         headers=headers,
     )
     assert r.status_code == 204, r.text
@@ -51,7 +51,7 @@ async def test_run_incomplete_profile(client, auth_headers):
     # consent без профиля — profile есть, но пустой (PUT не делали)
     r = await client.post(
         "/api/v1/me/consents",
-        json={"kind": "pd_processing", "version": "1"}, headers=auth_headers,
+        json={"kind": "pd_processing", "version": "2.0"}, headers=auth_headers,
     )
     assert r.status_code == 204
     # создаём минимальный профиль (только programmes) → missing_for_match вернёт english_level и т.д.
@@ -83,7 +83,8 @@ async def test_run_success_with_matcher(client, auth_headers, fake_matcher, cata
             "programme_kind": "talent",
             "total_candidates": 2,
             "items": [
-                {"opportunity_id": open_id, "score": 0.9, "breakdown": {}, "reasons": []},
+                {"opportunity_id": open_id, "score": 0.9, "label": "excellent",
+                 "breakdown": {}, "reasons": []},
                 {"opportunity_id": closed_id, "score": 0.7, "breakdown": {}, "reasons": []},
             ],
         }],

@@ -133,7 +133,11 @@ services:
       - ./backend/tests:/srv/tests:ro
       - ./backend/pytest.ini:/srv/pytest.ini:ro
       - ./backend/migrations:/srv/migrations:ro
-    command: ["python", "-m", "pytest", "-c", "/srv/pytest.ini", "tests"]
+      - ./qa/catalog_data.py:/srv/catalog_data.py:ro
+    command:
+      - sh
+      - -c
+      - alembic upgrade head && python -m pytest -c /srv/pytest.ini tests
   parser-test:
     build:
       context: .

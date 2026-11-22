@@ -18,7 +18,7 @@ async def _register(client):
     h = {"Authorization": f"Bearer {token}"}
     await client.post(
         "/api/v1/me/consents",
-        json={"kind": "pd_processing", "version": "1"},
+        json={"kind": "pd_processing", "version": "2.0"},
         headers=h,
     )
     return h
@@ -49,7 +49,7 @@ async def test_parallel_put_profile_only_one_version():
 
 @pytest.mark.asyncio
 async def test_idempotent_recommendation(client, monkeypatch):
-    from app.matcher_client import MatcherClient
+    from app.infrastructure.matcher_client import MatcherClient
 
     async def fake_match(self, payload):
         return {"programme_prior": ["talent"], "groups": []}

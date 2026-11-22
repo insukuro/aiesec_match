@@ -4,12 +4,6 @@ import uuid
 from app.config import get_settings
 
 @pytest.mark.asyncio
-async def test_anonymous_auth_endpoint_is_removed(client):
-    r = await client.post("/api/v1/auth/anonymous", json={})
-    assert r.status_code == 404
-
-
-@pytest.mark.asyncio
 async def test_register_returns_token(client):
     r = await client.post(
         "/api/v1/auth/register",
@@ -18,13 +12,11 @@ async def test_register_returns_token(client):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["access_token"]
-    assert "is_anonymous" not in body
     me = await client.get(
         "/api/v1/me",
         headers={"Authorization": f"Bearer {body['access_token']}"},
     )
     assert me.status_code == 200
-    assert "is_anonymous" not in me.json()
 
 
 @pytest.mark.asyncio

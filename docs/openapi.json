@@ -1,0 +1,209 @@
+{
+  "/health": {
+    "get": {
+      "params": [],
+      "responses": [
+        "200"
+      ]
+    }
+  },
+  "/opportunities": {
+    "get": {
+      "params": [
+        [
+          "city",
+          "query"
+        ],
+        [
+          "closing_before",
+          "query"
+        ],
+        [
+          "country",
+          "query"
+        ],
+        [
+          "desc",
+          "query"
+        ],
+        [
+          "home_lc_id",
+          "query"
+        ],
+        [
+          "home_mc_id",
+          "query"
+        ],
+        [
+          "limit",
+          "query"
+        ],
+        [
+          "new_since",
+          "query"
+        ],
+        [
+          "offset",
+          "query"
+        ],
+        [
+          "only_open",
+          "query"
+        ],
+        [
+          "programme_id",
+          "query"
+        ],
+        [
+          "q",
+          "query"
+        ],
+        [
+          "sort",
+          "query"
+        ],
+        [
+          "updated_since",
+          "query"
+        ]
+      ],
+      "responses": [
+        "200",
+        "422"
+      ]
+    }
+  },
+  "/opportunities/stats": {
+    "get": {
+      "params": [],
+      "responses": [
+        "200"
+      ]
+    }
+  },
+  "/opportunities/{opportunity_id}": {
+    "get": {
+      "params": [
+        [
+          "opportunity_id",
+          "path"
+        ]
+      ],
+      "responses": [
+        "200",
+        "422"
+      ]
+    }
+  },
+  "/opportunities/{opportunity_id}/refresh": {
+    "post": {
+      "params": [
+        [
+          "opportunity_id",
+          "path"
+        ]
+      ],
+      "responses": [
+        "200",
+        "422"
+      ]
+    }
+  },
+  "/sync/{kind}": {
+    "post": {
+      "params": [
+        [
+          "kind",
+          "path"
+        ]
+      ],
+      "responses": [
+        "202",
+        "422"
+      ]
+    }
+  },
+  "/maintenance/expire": {
+    "post": {
+      "params": [],
+      "responses": [
+        "200"
+      ]
+    }
+  },
+  "/sync/runs": {
+    "get": {
+      "params": [
+        [
+          "limit",
+          "query"
+        ]
+      ],
+      "responses": [
+        "200",
+        "422"
+      ]
+    }
+  },
+  "/admin/targets": {
+    "get": {
+      "params": [],
+      "responses": [
+        "200"
+      ]
+    }
+  },
+  "/admin/offices": {
+    "get": {
+      "params": [
+        [
+          "q",
+          "query"
+        ]
+      ],
+      "responses": [
+        "200",
+        "422"
+      ]
+    }
+  },
+  "/admin/schema/filters": {
+    "get": {
+      "params": [],
+      "responses": [
+        "200"
+      ]
+    }
+  },
+  "/admin/token": {
+    "get": {
+      "params": [],
+      "responses": [
+        "200"
+      ]
+    },
+    "put": {
+      "params": [],
+      "responses": [
+        "200",
+        "422"
+      ]
+    }
+  },
+  "/admin/token/check": {
+    "post": {
+      "params": [],
+      "responses": [
+        "200"
+      ]
+    }
+  },
+  "/admin/token/refresh": {
+    "post": {
+      "params": [],
+      "responses": [
+        "200"
+      ]
+    }
+  }
+}

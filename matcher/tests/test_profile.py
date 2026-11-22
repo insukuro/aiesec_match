@@ -9,31 +9,33 @@ from app.domain.profile import build_profile
 from app.schemas import ProfileSnapshot
 
 
-MARKETING_SK = {11186, 11176, 11205, 11193}
-SALES_SK = {10161, 11195, 10163}
-
-
-def profile(**kw):
-    return build_profile(ProfileSnapshot(**kw))
+MARKETING_SK = {11186, 11176, 11205, 11193, 11203}
+SALES_SK = {10161, 11195, 10163, 11200}
 
 
 @pytest.mark.parametrize("spheres, backgrounds, skills", [
-    (["marketing"], {10253}, MARKETING_SK),
+    (["marketing"], {10253, 10265, 10237}, MARKETING_SK),
     (["sales"], {21677}, SALES_SK),
-    (["marketing", "sales"], {10253, 21677}, MARKETING_SK | SALES_SK),
-    (["teaching_kids"], {10241}, {10162}),            # teaching_* ловит любое teaching_...
-    (["teaching"], {10241}, {10162, 10157}),          # активность teaching без _ это отдельный ключ
-    (["it"], {10239, 10268, 10238, 11298}, {11260, 11180}),
-    (["events"], set(), {11187, 10156}),              # активность без образования
-    (["космонавтика"], set(), set()),                  # неизвестная сфера не ошибка
+    (["marketing", "sales"], {10253, 10265, 10237, 21677}, MARKETING_SK | SALES_SK),
+    (["teaching_kids"], {10241, 10263}, {10162, 11173}),
+    (["teaching"], {10241}, {10162, 10157}),
+    (["it"], {10239, 10268, 10238, 11298, 10255, 11297}, {11260, 11180, 11221, 11225}),
+    (["events"], {10237, 10265}, {11187, 10156, 11194}),
+    (["космонавтика"], set(), set()),
 ])
 def test_spheres_become_backgrounds_and_skills(spheres, backgrounds, skills):
     p = profile(spheres=spheres)
     assert p.background_ids == backgrounds and p.skill_ids == skills
 
+
 def test_activities_and_study_field_count_too():
     p = profile(activities=["sales"], study={"field": "marketing"})
-    assert p.background_ids == {10253, 21677} and p.skill_ids == MARKETING_SK | SALES_SK
+    assert p.background_ids == {10253, 10265, 10237, 21677}
+    assert p.skill_ids == MARKETING_SK | SALES_SK
+    
+    
+def profile(**kw):
+    return build_profile(ProfileSnapshot(**kw))
 
 def test_languages_nationality_study_level():
     p = profile(other_languages=["ru", "es", "xx"], nationality="AZ", study={"status": "school"})

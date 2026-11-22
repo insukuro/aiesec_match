@@ -140,7 +140,7 @@ test-file:                ## test-file SERVICE=backend F=tests/...: один ф�
 ifeq ($(SERVICE),web)
 	cd web && npx vitest run $(F)
 else ifeq ($(SERVICE),backend)
-	$(COMPOSE_TEST) $(TOOLS) run --rm backend-tests $(F)
+	$(COMPOSE_TEST) $(TOOLS) run --rm --entrypoint sh backend-tests -c "alembic upgrade head && python -m pytest -c /srv/pytest.ini $(F)"
 else
 	$(COMPOSE_TEST) $(TOOLS) run --rm $(SERVICE)-tests $(F)
 endif

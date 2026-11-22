@@ -16,7 +16,7 @@ from app.errors import (
     (EmailTaken(), 409),
     (EmailDeliveryUnavailable(), 503),
     (BadCredentials(), 401),
-    (ConsentRequired(), 403),
+    (ConsentRequired(), 409),
     (ProfileIncomplete(), 409),
     (VersionConflict(), 412),
     (RateLimited(), 429),

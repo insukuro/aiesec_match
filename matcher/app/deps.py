@@ -42,13 +42,22 @@ def _build_reader(source: str, database_url: str, fake_path: str,
 def get_catalog_reader():
     s = get_settings()
     if s.catalog_source == "db" and not s.database_url:
+        raise HTTPException(
+            503, detail={"type": "catalog-unavailable", "message": "MATCHER_DATABASE_URL is empty"}
+        )
+    try:
+        return _build_reader(
+            s.catalog_source,
+            s.database_url,
+            s.fake_catalog_path,
+            s.db_pool_size,
+            s.db_max_overflow,
+            s.catalog_cache_ttl_s,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
         log.exception("failed to build catalog reader")
-        raise HTTPException(503, detail={"type": "catalog-unavailable"})
-    return _build_reader(
-        s.catalog_source,
-        s.database_url,
-        s.fake_catalog_path,
-        s.db_pool_size,
-        s.db_max_overflow,
-        s.catalog_cache_ttl_s,
-    )
+        raise HTTPException(
+            503, detail={"type": "catalog-unavailable", "message": str(exc)}
+        ) from exc

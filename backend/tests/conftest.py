@@ -9,6 +9,7 @@
 импортирует conftest и не должен падать.
 """
 
+import inspect
 import os
 import uuid
 from datetime import date, timedelta
@@ -31,6 +32,12 @@ from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 
 from app.db import _engine, _session_factory, get_session  # noqa: E402
 from app.main import app  # noqa: E402
+
+
+def pytest_collection_modifyitems(items):
+    for item in items:
+        if inspect.iscoroutinefunction(getattr(item, "obj", None)):
+            item.add_marker(pytest.mark.asyncio(loop_scope="session"), append=False)
 
 
 # --- 3. DSN для psycopg-фикстур ----------------------------------------------
@@ -69,9 +76,10 @@ async def session() -> AsyncSession:
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def _override_session(session):
+async def _override_session():
     async def _get_session_override():
-        yield session
+        async with _session_factory() as request_session:
+            yield request_session
 
     app.dependency_overrides[get_session] = _get_session_override
     try:
@@ -79,9 +87,7 @@ async def _override_session(session):
     finally:
         app.dependency_overrides.pop(get_session, None)
 
-
 # --- 6. Валидный профиль -----------------------------------------------------
-# Используется и тестами профилей, и фикстурой user_with_profile.
 VALID_PROFILE = {
     "programmes": ["talent"],
     "birth_date": "2003-05-10",
@@ -104,13 +110,13 @@ def _new_email() -> str:
 
 
 class TestUser:
-    """Зарегистрированный пользователь. .user_id — то, что ждёт test_api_profiles."""
+    """Зарегистрированный пользователь для API-тестов профиля."""
 
     def __init__(self, client: AsyncClient, with_consent: bool = True):
         self.client = client
         self.email = _new_email()
         self.password = "Passw0rd123"
-        self.user_id: int | None = None
+        self.user_id: uuid.UUID | None = None
         self.headers: dict[str, str] = {}
         self._with_consent = with_consent
 
@@ -129,13 +135,13 @@ class TestUser:
             payload = body["access_token"].split(".")[1]
             payload += "=" * (-len(payload) % 4)
             data = _json.loads(base64.urlsafe_b64decode(payload))
-            self.user_id = int(data["sub"])
+            self.user_id = uuid.UUID(data["sub"])
         self.headers = {"Authorization": f"Bearer {body['access_token']}"}
 
         if self._with_consent:
             r = await self.client.post(
                 "/api/v1/me/consents",
-                json={"kind": "pd_processing", "version": "1"},
+                json={"kind": "pd_processing", "version": "2.0"},
                 headers=self.headers,
             )
             assert r.status_code == 204, r.text
@@ -181,6 +187,28 @@ async def auth_headers(user):
 
 
 @pytest_asyncio.fixture
+async def fake_matcher(client):
+    class FakeMatcher:
+        def __init__(self):
+            self.calls = []
+            self.response = {"programme_prior": [], "groups": []}
+            self.raise_exc = None
+
+        async def match(self, payload):
+            self.calls.append(payload)
+            if self.raise_exc is not None:
+                raise self.raise_exc
+            return self.response
+
+    original_matcher = app.state.matcher
+    matcher = FakeMatcher()
+    app.state.matcher = matcher
+    try:
+        yield matcher
+    finally:
+        app.state.matcher = original_matcher
+
+@pytest_asyncio.fixture
 async def user_with_consent(user):
     """Совместимость с test_api_profiles.py: возвращает (user, session)."""
     # session уже открыта через autouse _override_session -> session
@@ -213,7 +241,7 @@ def catalog_rows():
                  backgrounds=[(10253, "Marketing", "required")],
                  languages=[EN], duration=8, opened=today - timedelta(days=5)),
         make_row(CATALOG_LO + 2, programme_id=9, title="Test Teacher [24 weeks]",
-                 languages=[EN], duration=24),
+                 languages=[EN], duration=24, is_open=False),
     ]
     with _connect_psycopg() as conn:
         delete_range(conn, CATALOG_LO, CATALOG_HI)
@@ -221,6 +249,11 @@ def catalog_rows():
     yield {"ideal": CATALOG_LO + 1, "teacher": CATALOG_LO + 2}
     with _connect_psycopg() as conn:
         delete_range(conn, CATALOG_LO, CATALOG_HI)
+
+
+@pytest.fixture
+def catalog_opps(catalog_rows):
+    return catalog_rows["ideal"], catalog_rows["teacher"]
 
 
 # --- 9. Очистка движка -------------------------------------------------------
