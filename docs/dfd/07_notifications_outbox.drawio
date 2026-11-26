@@ -1,0 +1,89 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net" modified="2026-11-27" agent="reverse-engineering-generator" version="24.7.17" type="device">
+  <diagram id="07_notifications_outbox" name="07_notifications_outbox">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="1120" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="e_match" value="Сервис подбора / создание запуска" style="shape=rectangle;rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=13;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="35" y="70" width="170" height="78" as="geometry" />
+        </mxCell>
+        <mxCell id="e_telegram" value="Потребитель Telegram" style="shape=rectangle;rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=13;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="1295" y="500" width="170" height="78" as="geometry" />
+        </mxCell>
+        <mxCell id="e_user" value="Пользователь / интерфейс" style="shape=rectangle;rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=13;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="1295" y="70" width="170" height="78" as="geometry" />
+        </mxCell>
+        <mxCell id="p_sub" value="7.1 Проверка подписки" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="518" y="120" width="215" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="p_event" value="7.2 Создание события&#10;Outbox" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="768" y="120" width="215" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="p_dedupe" value="7.3 Дедупликация по&#10;пользователю и запуску" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="268" y="245" width="215" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="d_sub" value="core.subscriptions" style="shape=partialRectangle;rounded=0;whiteSpace=wrap;html=1;top=0;bottom=0;left=1;right=0;fillColor=#F3F4F6;strokeColor=#6B7280;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="465" y="820" width="270" height="86" as="geometry" />
+        </mxCell>
+        <mxCell id="d_outbox" value="core.notification_outbox" style="shape=partialRectangle;rounded=0;whiteSpace=wrap;html=1;top=0;bottom=0;left=1;right=0;fillColor=#F3F4F6;strokeColor=#6B7280;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="765" y="820" width="270" height="86" as="geometry" />
+        </mxCell>
+        <mxCell id="p_lease" value="7.4 Аренда уведомлений" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="518" y="245" width="215" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="p_ack" value="7.5 Обновление Sent /&#10;Failed" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="768" y="245" width="215" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="p_inapp" value="7.6 Состояние прочтения&#10;в интерфейсе" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="268" y="120" width="215" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="f1" value="succeeded run id / top matches" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="e_match" target="p_sub">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f2" value="subscription / min score / channels" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="d_sub" target="p_sub">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f3" value="notification-eligible run" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="p_sub" target="p_event">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f4" value="run payload / dedupe key" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="p_event" target="p_dedupe">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f5" value="pending event / payload / dedupe key" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="p_dedupe" target="d_outbox">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f6" value="existing dedupe result" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="d_outbox" target="p_dedupe">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f7" value="consumer lease request" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="e_telegram" target="p_lease">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f8" value="lease / attempts / locked_until" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="p_lease" target="d_outbox">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f9" value="leased notification payload" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="d_outbox" target="p_lease">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f10" value="notification payload / chat id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="p_lease" target="e_telegram">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f11" value="delivery result / error" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="e_telegram" target="p_ack">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f12" value="sent or failed / sent_at" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="p_ack" target="d_outbox">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f13" value="notification list / read request" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="e_user" target="p_inapp">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f14" value="notification payload / read state" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="d_outbox" target="p_inapp">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f15" value="notification page / unread count" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="p_inapp" target="e_user">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

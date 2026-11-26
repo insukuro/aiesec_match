@@ -1,0 +1,83 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net" modified="2026-11-27" agent="reverse-engineering-generator" version="24.7.17" type="device">
+  <diagram id="03_profile_questionnaire" name="03_profile_questionnaire">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="1120" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="e_user" value="Пользователь" style="shape=rectangle;rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=13;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="35" y="70" width="170" height="78" as="geometry" />
+        </mxCell>
+        <mxCell id="p_schema" value="3.1 Загрузка схемы формы&#10;и согласий" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="268" y="120" width="215" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="p_validate" value="3.2 Валидация анкеты&#10;и возраста" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="768" y="120" width="215" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="p_normalize" value="3.3 Нормализация&#10;полей анкеты" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="268" y="245" width="215" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="p_complete" value="3.4 Расчёт&#10;полноты профиля" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="518" y="245" width="215" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="p_consent" value="3.5 Управление&#10;согласиями" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="518" y="120" width="215" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="p_persist" value="3.6 Сохранение версий&#10;профиля" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="768" y="245" width="215" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="d_profile" value="core.profiles /&#10;profile_versions" style="shape=partialRectangle;rounded=0;whiteSpace=wrap;html=1;top=0;bottom=0;left=1;right=0;fillColor=#F3F4F6;strokeColor=#6B7280;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="465" y="820" width="270" height="86" as="geometry" />
+        </mxCell>
+        <mxCell id="d_consent" value="core.consents" style="shape=partialRectangle;rounded=0;whiteSpace=wrap;html=1;top=0;bottom=0;left=1;right=0;fillColor=#F3F4F6;strokeColor=#6B7280;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="765" y="820" width="270" height="86" as="geometry" />
+        </mxCell>
+        <mxCell id="d_form" value="form_schema.v2.yaml /&#10;consents.v1.yaml" style="shape=partialRectangle;rounded=0;whiteSpace=wrap;html=1;top=0;bottom=0;left=1;right=0;fillColor=#F3F4F6;strokeColor=#6B7280;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="465" y="931" width="270" height="86" as="geometry" />
+        </mxCell>
+        <mxCell id="f1" value="Запрос формы / согласия" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="e_user" target="p_schema">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f2" value="schema / field options / consent versions" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="d_form" target="p_schema">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f3" value="Схема формы / согласия / справочники" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="p_schema" target="e_user">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f4" value="Тело профиля / версия If-Match" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="e_user" target="p_validate">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f5" value="Проверенные поля профиля" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="p_validate" target="p_normalize">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f6" value="JSON-снимок профиля" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="p_normalize" target="p_complete">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f7" value="Данные профиля / полнота" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="p_complete" target="p_persist">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f8" value="Новая версия / дата рождения / полнота" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="p_persist" target="d_profile">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f9" value="current version / existing snapshot" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="d_profile" target="p_persist">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f10" value="Профиль / версия / updated_at" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="p_persist" target="e_user">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f11" value="Тип согласия / версия" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="e_user" target="p_consent">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f12" value="required consent version" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="d_form" target="p_consent">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f13" value="acceptance / revocation" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="p_consent" target="d_consent">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f14" value="Записи принятых согласий" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="d_consent" target="p_consent">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

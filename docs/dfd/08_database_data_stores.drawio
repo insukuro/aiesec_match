@@ -1,0 +1,122 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net" modified="2026-11-27" agent="reverse-engineering-generator" version="24.7.17" type="device">
+  <diagram id="08_database_data_stores" name="08_database_data_stores">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="1120" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="b_trust" value="PostgreSQL schemas / service trust boundary" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9CA3AF;strokeWidth=2;dashed=1;verticalAlign=top;spacingTop=10;fontSize=11;fontColor=#6B7280;" vertex="1" parent="1">
+          <mxGeometry x="280" y="40" width="760" height="950" as="geometry" />
+          <mxGeometry x="55" y="55" width="1390" height="890" as="geometry" />
+          <mxGeometry x="55" y="55" width="1390" height="890" as="geometry" />
+          <mxGeometry x="55" y="55" width="1390" height="890" as="geometry" />
+        </mxCell>
+        <mxCell id="p_auth" value="2.0 Аутентификация и&#10;аккаунты" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="268" y="120" width="215" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="p_profile" value="3.0 Профили и&#10;согласия" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="518" y="120" width="215" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="p_match" value="5.0 Подбор" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="768" y="120" width="215" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="p_feedback" value="6.0 Feedback и история" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="268" y="245" width="215" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="p_notify" value="7.0 Уведомления" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="518" y="245" width="215" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="p_sync" value="4.0 Синхронизация парсера" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="768" y="245" width="215" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="d_users" value="core.users / identities /&#10;password_credentials" style="shape=partialRectangle;rounded=0;whiteSpace=wrap;html=1;top=0;bottom=0;left=1;right=0;fillColor=#F3F4F6;strokeColor=#6B7280;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="315" y="820" width="270" height="86" as="geometry" />
+        </mxCell>
+        <mxCell id="d_verify" value="core.password_reset_tokens /&#10;email_verifications" style="shape=partialRectangle;rounded=0;whiteSpace=wrap;html=1;top=0;bottom=0;left=1;right=0;fillColor=#F3F4F6;strokeColor=#6B7280;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="615" y="820" width="270" height="86" as="geometry" />
+        </mxCell>
+        <mxCell id="d_profiles" value="core.profiles / profile_versions" style="shape=partialRectangle;rounded=0;whiteSpace=wrap;html=1;top=0;bottom=0;left=1;right=0;fillColor=#F3F4F6;strokeColor=#6B7280;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="915" y="820" width="270" height="86" as="geometry" />
+        </mxCell>
+        <mxCell id="d_consents" value="core.consents" style="shape=partialRectangle;rounded=0;whiteSpace=wrap;html=1;top=0;bottom=0;left=1;right=0;fillColor=#F3F4F6;strokeColor=#6B7280;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="315" y="931" width="270" height="86" as="geometry" />
+        </mxCell>
+        <mxCell id="d_catalog" value="catalog.opportunity_v1 /&#10;opportunity_requirement_v1" style="shape=partialRectangle;rounded=0;whiteSpace=wrap;html=1;top=0;bottom=0;left=1;right=0;fillColor=#F3F4F6;strokeColor=#6B7280;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="615" y="931" width="270" height="86" as="geometry" />
+        </mxCell>
+        <mxCell id="d_runs" value="core.recommendation_runs /&#10;recommendation_items" style="shape=partialRectangle;rounded=0;whiteSpace=wrap;html=1;top=0;bottom=0;left=1;right=0;fillColor=#F3F4F6;strokeColor=#6B7280;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="915" y="931" width="270" height="86" as="geometry" />
+        </mxCell>
+        <mxCell id="d_feedback" value="core.feedback" style="shape=partialRectangle;rounded=0;whiteSpace=wrap;html=1;top=0;bottom=0;left=1;right=0;fillColor=#F3F4F6;strokeColor=#6B7280;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="315" y="1042" width="270" height="86" as="geometry" />
+        </mxCell>
+        <mxCell id="d_notify" value="core.subscriptions /&#10;notification_outbox / link_codes" style="shape=partialRectangle;rounded=0;whiteSpace=wrap;html=1;top=0;bottom=0;left=1;right=0;fillColor=#F3F4F6;strokeColor=#6B7280;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="615" y="1042" width="270" height="86" as="geometry" />
+        </mxCell>
+        <mxCell id="d_parser" value="parser.opportunities / sync_runs /&#10;sync_state" style="shape=partialRectangle;rounded=0;whiteSpace=wrap;html=1;top=0;bottom=0;left=1;right=0;fillColor=#F3F4F6;strokeColor=#6B7280;fontSize=12;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="915" y="1042" width="270" height="86" as="geometry" />
+        </mxCell>
+        <mxCell id="f1" value="create / lookup / update auth identity" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="p_auth" target="d_users">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f2" value="credentials / identities / account state" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="d_users" target="p_auth">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f3" value="verification / reset code hashes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="p_auth" target="d_verify">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f4" value="Состояние верификации" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="d_verify" target="p_auth">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f5" value="profile snapshots / versions / completeness" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="p_profile" target="d_profiles">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f6" value="current / historical profile data" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="d_profiles" target="p_profile">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f7" value="Принятие / отзыв согласия" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="p_profile" target="d_consents">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f8" value="consent version records" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="d_consents" target="p_profile">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f9" value="run state / item scores / reasons" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="p_match" target="d_runs">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f10" value="existing or latest run data" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="d_runs" target="p_match">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f11" value="catalog / requirement reads" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="p_match" target="d_catalog">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f12" value="open opportunities / requirements" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="d_catalog" target="p_match">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f13" value="feedback signals" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="p_feedback" target="d_feedback">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f14" value="feedback lists / event history" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="d_feedback" target="p_feedback">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f15" value="history reads" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="p_feedback" target="d_runs">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f16" value="completed runs" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="d_runs" target="p_feedback">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f17" value="subscription / outbox / link-code writes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="p_notify" target="d_notify">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f18" value="subscription / leases / ack state" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="d_notify" target="p_notify">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f19" value="opportunity rows / sync runs / state" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="p_sync" target="d_parser">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f20" value="known ids / previous watermarks" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=1.5;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="d_parser" target="p_sync">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
