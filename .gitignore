@@ -12,3 +12,4 @@ loadtest/data/tokens.json
 loadtest/results/*.json
 loadtest/results/*.html
 loadtest/results/runs/
+*-lock.json
