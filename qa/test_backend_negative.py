@@ -3,7 +3,7 @@ from datetime import date
 
 import pytest
 
-from conftest import API, BACKEND, PROFILE, User, new_email
+from conftest import API, BACKEND, PROFILE, QA_INTERNAL_TOKEN, User, new_email
 
 pytestmark = pytest.mark.extended
 
@@ -183,6 +183,11 @@ def test_bug_b04_internal_api_is_not_open(http):
     """BUG-B-04: служебные ручки /internal/v1/notifications/* отвечают без какой-либо авторизации."""
     r = http.post(f"{BACKEND}/internal/v1/notifications/lease")
     assert r.status_code in (401, 403)
+    r = http.post(
+        f"{BACKEND}/internal/v1/notifications/lease",
+        headers={"X-Internal-Token": QA_INTERNAL_TOKEN},
+    )
+    assert r.status_code == 200
 
 @pytest.mark.bug
 def test_bug_b05_group_total_candidates_is_reported(user, catalog):

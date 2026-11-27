@@ -1,0 +1,462 @@
+{
+  "uid": "aiesec-loadtest",
+  "title": "AIESEC Match — нагрузочный тест подбора",
+  "tags": [
+    "AIESEC Match",
+    "k6"
+  ],
+  "schemaVersion": 39,
+  "timezone": "utc",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "refresh": "5s",
+  "templating": {
+    "list": [
+      {
+        "name": "run_id",
+        "label": "Прогон",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "aiesec-prometheus"
+        },
+        "query": {
+          "query": "label_values(k6_match_started_total, run_id)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "sort": 2,
+        "definition": "label_values(k6_match_started_total, run_id)"
+      },
+      {
+        "name": "phase",
+        "label": "Фаза",
+        "type": "custom",
+        "query": "Весь прогон : .*, Плато : plateau",
+        "current": {
+          "selected": true,
+          "text": "Весь прогон",
+          "value": ".*"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "Весь прогон",
+            "value": ".*"
+          },
+          {
+            "selected": false,
+            "text": "Плато",
+            "value": "plateau"
+          }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Активные кандидаты",
+      "description": "Активные виртуальные пользователи k6.",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aiesec-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(k6_vus{run_id=\"$run_id\"})",
+          "legendFormat": "VU",
+          "interval": "5s",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aiesec-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Запросы подбора",
+      "description": "Только POST /api/v1/recommendations. Окно 30 с.",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aiesec-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(k6_http_reqs_total{run_id=\"$run_id\",phase=~\"${phase:raw}\",op=\"recommend\",phase!=\"setup\"}[30s]))",
+          "legendFormat": "Запросы/с",
+          "interval": "5s",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aiesec-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "p95 корректного подбора",
+      "description": "Миллисекунды от начала HTTP-вызова до получения ответа. Окно 30 с. Для отчётного p95 используйте NDJSON.",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aiesec-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "1000 * histogram_quantile(0.95, sum(rate(k6_match_wall_seconds{run_id=\"$run_id\",phase=~\"${phase:raw}\"}[30s])))",
+          "legendFormat": "p95",
+          "interval": "5s",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aiesec-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Ошибки и корректная выдача",
+      "description": "Доля HTTP-ошибок и корректных результатов среди завершённых попыток за 30 с. Отчёт дополнительно учитывает незавершённые.",
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aiesec-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 * ((sum(rate(k6_http_reqs_total{run_id=\"$run_id\",phase=~\"${phase:raw}\",op=\"recommend\",phase!=\"setup\",expected_response=\"false\"}[30s])) or (0 * sum(rate(k6_http_reqs_total{run_id=\"$run_id\",phase=~\"${phase:raw}\",op=\"recommend\",phase!=\"setup\"}[30s])))) / sum(rate(k6_http_reqs_total{run_id=\"$run_id\",phase=~\"${phase:raw}\",op=\"recommend\",phase!=\"setup\"}[30s])))",
+          "legendFormat": "HTTP-ошибки",
+          "interval": "5s",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aiesec-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "100 * (sum(rate(k6_match_success_total{run_id=\"$run_id\",phase=~\"${phase:raw}\"}[30s])) / sum(rate(k6_match_completed_total{run_id=\"$run_id\",phase=~\"${phase:raw}\"}[30s])))",
+          "legendFormat": "Корректный подбор",
+          "interval": "5s",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aiesec-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "CPU Backend и Matcher",
+      "description": "Число занятых ядер за 30 с. Источник — Docker Stats API.",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aiesec-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (service) (rate(container_cpu_usage_seconds_total{service=~\"backend|matcher\"}[30s]))",
+          "legendFormat": "{{service}}",
+          "interval": "5s",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aiesec-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: ядер",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Память Backend и Matcher",
+      "description": "Рабочий набор памяти контейнера. Источник — Docker Stats API.",
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aiesec-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (service) (container_memory_working_set_bytes{service=~\"backend|matcher\"}) / 1048576",
+          "legendFormat": "{{service}}",
+          "interval": "5s",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aiesec-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: MiB",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Завершённые подборы",
+      "description": "Накопленное значение выбранного прогона. Работает и для одиночного НТ-01.",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 8,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aiesec-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(k6_match_completed_total{run_id=\"$run_id\",phase=~\"${phase:raw}\"})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Корректные подборы",
+      "description": "Накопленное значение выбранного прогона. Работает и для одиночного НТ-01.",
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 8,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aiesec-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(k6_match_success_total{run_id=\"$run_id\",phase=~\"${phase:raw}\"})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "p95 за прогон",
+      "description": "Накопленное значение выбранного прогона. Работает и для одиночного НТ-01.",
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 8,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aiesec-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "1000 * histogram_quantile(0.95, sum(k6_match_wall_seconds{run_id=\"$run_id\",phase=~\"${phase:raw}\"}))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    }
+  ],
+  "graphTooltip": 1
+}

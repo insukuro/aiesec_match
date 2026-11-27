@@ -1630,6 +1630,22 @@
               "default": 120,
               "title": "Lease Seconds"
             }
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
           }
         ],
         "responses": {
@@ -1670,6 +1686,22 @@
               "type": "string",
               "format": "uuid",
               "title": "Notification Id"
+            }
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
             }
           }
         ],
@@ -1734,6 +1766,22 @@
             "schema": {
               "type": "string",
               "title": "Telegram External Id"
+            }
+          },
+          {
+            "name": "x-internal-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
             }
           }
         ],

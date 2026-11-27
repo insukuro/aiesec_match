@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     catalog_source: Literal["db", "fake"] = "db"
     fake_catalog_path: str = "app/data/fake_catalog.json"
     database_url: str = ""
-    catalog_cache_ttl_s: float = 60          # 0 = кэш выключен; в проде 60
+    catalog_cache_ttl_s: float = 0          # 0 = кэш выключен; в проде 60
     label_excellent: float = 0.75
     label_good: float = 0.55
 

@@ -1,13 +1,32 @@
+import hmac
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import get_settings
 from ..application.link_code_service import LinkCodeService
 from ..application.notification_service import NotificationService
 from ..db import get_session
+from ..errors import Unauthorized
 
-router = APIRouter(tags=["internal"])
+
+async def require_internal_token(
+    x_internal_token: str | None = Header(default=None),
+) -> None:
+    expected = get_settings().internal_token
+    if (
+        not expected
+        or x_internal_token is None
+        or not hmac.compare_digest(x_internal_token, expected)
+    ):
+        raise Unauthorized()
+
+
+router = APIRouter(
+    tags=["internal"],
+    dependencies=[Depends(require_internal_token)],
+)
 
 
 @router.post("/notifications/lease")

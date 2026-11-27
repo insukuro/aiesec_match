@@ -28,6 +28,19 @@ ALTER SCHEMA catalog OWNER TO parser_writer;
 ALTER SCHEMA core    OWNER TO backend_writer;
 ALTER SCHEMA matcher OWNER TO matcher_writer;
 
+DO $$
+DECLARE
+    obj record;
+BEGIN
+    FOR obj IN SELECT tablename FROM pg_tables WHERE schemaname = 'core' LOOP
+        EXECUTE format('ALTER TABLE core.%I OWNER TO backend_writer', obj.tablename);
+    END LOOP;
+    FOR obj IN
+        SELECT sequence_name FROM information_schema.sequences WHERE sequence_schema = 'core'
+    LOOP
+        EXECUTE format('ALTER SEQUENCE core.%I OWNER TO backend_writer', obj.sequence_name);
+    END LOOP;
+END $$;
 
 GRANT USAGE ON SCHEMA catalog TO catalog_ro;
 GRANT SELECT ON ALL TABLES    IN SCHEMA catalog TO catalog_ro;

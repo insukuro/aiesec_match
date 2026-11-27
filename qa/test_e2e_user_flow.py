@@ -6,7 +6,7 @@ import uuid
 
 import pytest
 
-from conftest import API, MATCHER, PROFILE, User
+from conftest import API, MATCHER, PROFILE, User, consent_version
 
 pytestmark = pytest.mark.critical
 
@@ -26,7 +26,13 @@ def test_register_login_me(http):
 def test_profile_requires_consent_then_saves(bare_user):
     r = bare_user.put("/profiles/me", json=PROFILE)
     assert r.status_code == 403 and r.json()["type"] == "/problems/consent-required"
-    assert bare_user.post("/me/consents", json={"kind": "pd_processing", "version": "1"}).status_code == 204
+    assert bare_user.post(
+        "/me/consents",
+        json={
+            "kind": "pd_processing",
+            "version": consent_version(bare_user.http),
+        },
+    ).status_code == 204
     r = bare_user.put("/profiles/me", json=PROFILE)
     assert r.status_code == 200
     body = r.json()

@@ -16,6 +16,7 @@ from catalog_data import delete_range, insert_rows, make_row
 BACKEND = os.environ.get("QA_BACKEND_URL", "http://backend:8000")
 MATCHER = os.environ.get("QA_MATCHER_URL", "http://matcher:8000")
 PARSER = os.environ.get("QA_PARSER_URL", "http://parser:8000")
+QA_INTERNAL_TOKEN = os.environ.get("QA_INTERNAL_TOKEN", "")
 DB = os.environ.get("QA_DB_NAME", "aiesec_match_dev")
 DB_HOST = os.environ.get("QA_DB_HOST", "postgres")
 DSN = {role: f"postgresql://{role}:{pw}@{DB_HOST}:5432/{DB}" for role, pw in {
@@ -94,6 +95,16 @@ def new_email() -> str:
     return f"qa_{uuid.uuid4().hex[:12]}@example.com"
 
 
+def consent_version(http: httpx.Client, kind: str = "pd_processing") -> str:
+    response = http.get(f"{API}/meta/consents")
+    assert response.status_code == 200, response.text
+    return next(
+        consent["version"]
+        for consent in response.json()["consents"]
+        if consent["kind"] == kind
+    )
+
+
 class User:
     """Зарегистрированный тестовый пользователь."""
 
@@ -103,7 +114,13 @@ class User:
         assert r.status_code == 200, r.text
         self.h = {"Authorization": f"Bearer {r.json()['access_token']}"}
         if with_consent:
-            assert self.post("/me/consents", json={"kind": "pd_processing", "version": "1"}).status_code == 204
+            assert self.post(
+                "/me/consents",
+                json={
+                    "kind": "pd_processing",
+                    "version": consent_version(http),
+                },
+            ).status_code == 204
         if profile is not None:
             assert self.put("/profiles/me", json=profile).status_code == 200
 

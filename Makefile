@@ -115,9 +115,11 @@ endif
 # backend — единственный, кому нужен docker-compose.test.yml
 # (postgres-test-init + postgres-test-parser-init + bootstrap + catalog-вьюхи)
 test-backend:             ## backend-тесты на Postgres с bootstrap и catalog-вьюхами
+	$(COMPOSE_TEST) run --rm postgres-test-init
 	$(COMPOSE_TEST) $(TOOLS) run --rm backend-tests
 
 test-system:              ## системные тесты в test-стеке (aiesec_test)
+	$(COMPOSE_TEST) run --rm postgres-test-init
 	$(COMPOSE_TEST) --profile qa up -d --wait backend-test
 	$(COMPOSE_TEST) --profile qa run --rm qa
 

@@ -67,6 +67,7 @@ services:
         REQUIREMENTS: /srv/requirements/backend-dev.txt
     environment:
       AIESEC_DATABASE_URL: postgresql+asyncpg://backend_writer:backend@postgres-test:5432/aiesec_test
+      AIESEC_INTERNAL_TOKEN: test-internal-token
       AIESEC_MATCHER_BASE_URL: http://matcher-test:8000
     depends_on:
       postgres-test-init:
@@ -120,7 +121,7 @@ services:
       args:
         REQUIREMENTS: /srv/requirements/backend-dev.txt
     environment:
-      AIESEC_DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres-test:5432/aiesec_test
+      AIESEC_DATABASE_URL: postgresql+asyncpg://backend_writer:backend@postgres-test:5432/aiesec_test
     depends_on:
       postgres-test-init:
         condition: service_completed_successfully
@@ -246,6 +247,7 @@ services:
       QA_PARSER_URL: http://parser-test:8000
       QA_DB_HOST: postgres-test
       QA_DB_NAME: aiesec_test
+      QA_INTERNAL_TOKEN: test-internal-token
       PARSER_DB_PASSWORD: parser
       BACKEND_DB_PASSWORD: backend
       MATCHER_DB_PASSWORD: matcher

@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     form_schema_path: Path = Path("app/forms/form_schema.v2.yaml")
     openapi_path: Path = Path("openapi/backend.v1.json")
 
-    internal_token: str = "change-me-internal"
+    internal_token: str = ""
 
 
 @lru_cache

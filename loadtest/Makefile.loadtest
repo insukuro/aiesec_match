@@ -1,69 +1,19 @@
-# loadtest/Makefile.loadtest
-# Подключается из корневого Makefile: include loadtest/Makefile.loadtest
+LOADTEST_COMPOSE := docker compose -f loadtest/docker-compose.loadtest.yml
 
-LOADTEST_PROFILE ?= baseline
-K6_IMAGE         := grafana/k6:0.54.0
-NETWORK          ?= aiesec-backend         # ← ваша сеть (docker ps)
-ROOT             := $(shell pwd)
+.PHONY: loadtest-prepare loadtest-monitor loadtest-monitor-resources loadtest loadtest-stop
 
-K6_RUN = docker run --rm \
-	--network $(NETWORK) \
-	-v $(ROOT)/loadtest/k6:/scripts:ro \
-	-v $(ROOT)/loadtest/data:/data:ro \
-	-v $(ROOT)/loadtest/results:/results \
-	-e BACKEND_URL=http://backend:8000 \
-	-e MATCHER_URL=http://matcher:8000 \
-	$(K6_IMAGE) run
+loadtest-prepare: ## Подготовить чистый стенд и каталог для нагрузочного теста
+	bash loadtest/scripts/prepare.sh
 
-# ---------- seed ----------
-loadtest-seed:            ## seed N пользователей (N=50)
-	@BASE_URL=$${BACKEND_URL:-http://localhost:8000} \
-	 N=$(or $(N),50) \
-	 bash loadtest/scripts/seed_users.sh loadtest/data/tokens.json
-	@echo "tokens: $$(jq length loadtest/data/tokens.json)"
+loadtest-monitor: ## Запустить Prometheus и Grafana
+	$(LOADTEST_COMPOSE) up -d --wait prometheus grafana
 
-# ---------- matcher ----------
-loadtest-matcher:         ## matcher baseline|stress|spike
-	@mkdir -p loadtest/results && chmod 777 loadtest/results
-	@docker run --rm --network $(NETWORK) curlimages/curl:8.10.1 \
-		-sf http://matcher:8000/health > /dev/null \
-		|| (echo "❌ matcher не отвечает на /health" && exit 1)
-	$(K6_RUN) -e PROFILE=$(LOADTEST_PROFILE) \
-		--summary-export=/results/matcher-$(LOADTEST_PROFILE).json \
-		/scripts/matcher.js
-	@bash loadtest/scripts/summarize.sh loadtest/results/matcher-$(LOADTEST_PROFILE).json
+loadtest-monitor-resources: ## Подключить CPU и память контейнеров через Docker Stats API
+	$(LOADTEST_COMPOSE) --profile resources up -d --wait prometheus grafana docker-metrics
+	$(LOADTEST_COMPOSE) restart prometheus
 
-# ---------- backend ----------
-loadtest-backend:         ## backend baseline|stress|spike
-	@test -f loadtest/data/tokens.json || (echo "сначала: make loadtest-seed" && exit 1)
-	@mkdir -p loadtest/results && chmod 777 loadtest/results
-	@docker run --rm --network $(NETWORK) curlimages/curl:8.10.1 \
-		-sf http://backend:8000/api/v1/health > /dev/null \
-		|| (echo "❌ backend не отвечает на /api/v1/health" && exit 1)
-	$(K6_RUN) -e PROFILE=$(LOADTEST_PROFILE) \
-		--summary-export=/results/backend-$(LOADTEST_PROFILE).json \
-		/scripts/backend.js
-	@bash loadtest/scripts/summarize.sh loadtest/results/backend-$(LOADTEST_PROFILE).json
+loadtest: ## Запустить НТ-01, НТ-02 или НТ-03 (CASE=NT01|NT02|NT03)
+	bash loadtest/scripts/run.sh "$(or $(CASE),NT01)" "$(USERS)" "$(HOLD_SECONDS)"
 
-# ---------- e2e ----------
-loadtest-e2e:             ## e2e: 10 VU × 5 мин
-	@mkdir -p loadtest/results && chmod 777 loadtest/results
-	$(K6_RUN) -e E2E_VUS=$(or $(VUS),10) -e E2E_DURATION=$(or $(DURATION),5m) \
-		--summary-export=/results/e2e.json \
-		/scripts/e2e.js
-	@bash loadtest/scripts/summarize.sh loadtest/results/e2e.json
-
-# ---------- комбо ----------
-loadtest-baseline:        ## matcher + backend baseline
-	$(MAKE) loadtest-matcher LOADTEST_PROFILE=baseline
-	$(MAKE) loadtest-backend LOADTEST_PROFILE=baseline
-
-loadtest-stress:          ## matcher + backend stress
-	$(MAKE) loadtest-matcher LOADTEST_PROFILE=stress
-	$(MAKE) loadtest-backend LOADTEST_PROFILE=stress
-
-loadtest-clean:           ## удалить результаты
-	rm -f loadtest/results/*.json
-
-.PHONY: loadtest-seed loadtest-matcher loadtest-backend loadtest-e2e \
-        loadtest-baseline loadtest-stress loadtest-clean
+loadtest-stop: ## Остановить мониторинг, сохранив данные
+	$(LOADTEST_COMPOSE) --profile resources down
