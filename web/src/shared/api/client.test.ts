@@ -1,68 +1,73 @@
 // web/src/shared/api/client.test.ts
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { http, HttpResponse } from "msw";
-import { server } from "../../test/msw/server";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   request, ApiError, setAccessToken, getAccessToken, setUnauthorizedHandler,
 } from "./client";
 
+const fetchMock = vi.fn<typeof fetch>();
+
 beforeEach(() => {
+  fetchMock.mockReset();
+  vi.stubGlobal("fetch", fetchMock);
   setAccessToken(null);
   setUnauthorizedHandler(null);
-  localStorage.clear();
 });
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("request", () => {
   it("200 JSON", async () => {
-    server.use(http.get("/api/v1/x", () => HttpResponse.json({ ok: true })));
+    fetchMock.mockResolvedValueOnce(Response.json({ ok: true }));
     expect(await request<{ ok: boolean }>("/x")).toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith("/api/v1/x", expect.any(Object));
   });
 
   it("204 → undefined", async () => {
-    server.use(http.delete("/api/v1/x", () => new HttpResponse(null, { status: 204 })));
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
     expect(await request("/x", { method: "DELETE" })).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(
+      "/api/v1/x",
+      expect.objectContaining({ method: "DELETE" }),
+    );
   });
 
   it("ставит Authorization если токен есть", async () => {
     setAccessToken("tok");
-    let header = "";
-    server.use(http.get("/api/v1/x", ({ request }) => {
-      header = request.headers.get("authorization") ?? "";
-      return HttpResponse.json({});
-    }));
+    fetchMock.mockResolvedValueOnce(Response.json({}));
     await request("/x");
-    expect(header).toBe("Bearer tok");
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get("authorization")).toBe("Bearer tok");
   });
 
   it("skipAuth — не ставит Authorization", async () => {
     setAccessToken("tok");
-    let header: string | null = "sentinel";
-    server.use(http.post("/api/v1/x", ({ request }) => {
-      header = request.headers.get("authorization");
-      return HttpResponse.json({});
-    }));
+    fetchMock.mockResolvedValueOnce(Response.json({}));
     await request("/x", { method: "POST", body: {}, skipAuth: true });
-    expect(header).toBeNull();
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(
+      "/api/v1/x",
+      expect.objectContaining({ method: "POST", body: "{}" }),
+    );
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).has("authorization")).toBe(false);
   });
 
   it("ставит If-Match и Idempotency-Key", async () => {
-    let ifMatch: string | null = null, idem: string | null = null;
-    server.use(http.post("/api/v1/x", ({ request }) => {
-      ifMatch = request.headers.get("if-match");
-      idem = request.headers.get("idempotency-key");
-      return HttpResponse.json({});
-    }));
+    fetchMock.mockResolvedValueOnce(Response.json({}));
     await request("/x", { method: "POST", body: {}, ifMatch: '"3"', idempotencyKey: "k1" });
-    expect(ifMatch).toBe('"3"');
-    expect(idem).toBe("k1");
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(
+      "/api/v1/x",
+      expect.objectContaining({ method: "POST" }),
+    );
+    const headers = new Headers(fetchMock.mock.calls[0][1]?.headers);
+    expect(headers.get("if-match")).toBe('"3"');
+    expect(headers.get("idempotency-key")).toBe("k1");
   });
 
   it("401 — сбрасывает токен и зовёт onUnauthorized", async () => {
     setAccessToken("tok");
     const onUnauth = vi.fn();
     setUnauthorizedHandler(onUnauth);
-    server.use(http.get("/api/v1/x", () =>
-      HttpResponse.json({ type: "/problems/unauthorized", title: "U", status: 401 }, { status: 401 })));
+    fetchMock.mockResolvedValueOnce(
+      Response.json({ type: "/problems/unauthorized", title: "U", status: 401 }, { status: 401 }),
+    );
     await expect(request("/x")).rejects.toMatchObject({ status: 401 });
     expect(getAccessToken()).toBeNull();
     expect(onUnauth).toHaveBeenCalledOnce();
@@ -71,14 +76,17 @@ describe("request", () => {
   it("401 + skipAuth — НЕ зовёт onUnauthorized", async () => {
     const onUnauth = vi.fn();
     setUnauthorizedHandler(onUnauth);
-    server.use(http.post("/api/v1/x", () => new HttpResponse(null, { status: 401 })));
-    await expect(request("/x", { method: "POST", skipAuth: true })).rejects.toBeInstanceOf(ApiError);
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
+    const result = request("/x", { method: "POST", skipAuth: true });
+    await expect(result).rejects.toBeInstanceOf(ApiError);
+    await expect(result).rejects.toMatchObject({ status: 401 });
     expect(onUnauth).not.toHaveBeenCalled();
   });
 
   it("4xx — ApiError с problem", async () => {
-    server.use(http.get("/api/v1/x", () =>
-      HttpResponse.json({ type: "/problems/validation", title: "V", status: 422, errors: [] }, { status: 422 })));
+    fetchMock.mockResolvedValueOnce(
+      Response.json({ type: "/problems/validation", title: "V", status: 422, errors: [] }, { status: 422 }),
+    );
     await expect(request("/x")).rejects.toMatchObject({
       status: 422,
       problem: { type: "/problems/validation" },
@@ -86,12 +94,12 @@ describe("request", () => {
   });
 
   it("не-JSON тело ошибки — fallback problem", async () => {
-    server.use(http.get("/api/v1/x", () => new HttpResponse("oops", { status: 500 })));
+    fetchMock.mockResolvedValueOnce(new Response("oops", { status: 500 }));
     await expect(request("/x")).rejects.toMatchObject({ status: 500 });
   });
 
   it("сетевой сбой → ApiError(0, /problems/network)", async () => {
-    server.use(http.get("/api/v1/x", () => HttpResponse.error()));
+    fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
     await expect(request("/x")).rejects.toMatchObject({
       status: 0,
       problem: { type: "/problems/network" },
@@ -99,7 +107,7 @@ describe("request", () => {
   });
 
   it("200 с пустым телом → undefined", async () => {
-    server.use(http.get("/api/v1/x", () => new HttpResponse(null, { status: 200 })));
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 200 }));
     expect(await request("/x")).toBeUndefined();
   });
 });

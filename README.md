@@ -26,7 +26,7 @@
 - **База данных:** PostgreSQL 16 с расширением `pgvector`
 - **Службы:** отдельно развёрнутые сервисы backend, parser, matcher и веб-клиент
 - **Инфраструктура:** Docker, Docker Compose, Make, Nginx
-- **Тестирование:** pytest, Vitest, Testing Library, MSW
+- **Тестирование:** pytest, Vitest, Testing Library
 - **Внешний источник данных:** AIESEC GraphQL API
 
 ## Требования
@@ -1090,7 +1090,6 @@ aiesec_match
    │  │     ├─ Toggle.tsx
    │  │     └─ index.ts
    │  ├─ test
-   │  │  ├─ msw
    │  │  │  ├─ handlers.ts
    │  │  │  └─ server.ts
    │  │  ├─ setup.ts

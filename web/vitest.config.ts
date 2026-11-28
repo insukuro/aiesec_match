@@ -10,10 +10,9 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
+    include: ["src/**/*.{test,spec}.{ts,tsx}"],
     setupFiles: ["./src/test/setup.ts"],
     env: { TZ: "UTC" },
-    // msw v2 и jsdom: нужно, чтобы `Response`/`Request`/`Headers` были
-    // доступны как глобалы (в Node 20 они есть, но jsdom их перетирает)
     environmentOptions: { jsdom: { url: "http://localhost/" } },
     coverage: {
       provider: "v8",
