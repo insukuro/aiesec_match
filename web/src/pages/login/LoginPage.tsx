@@ -8,6 +8,7 @@ import { PasswordField } from "../../shared/ui/PasswordField";
 import { ROUTES } from "../../app/routes";
 import { useToast } from "../../shared/ui/Toast";
 import { errorMessage } from "../../shared/lib/errors";
+import { loginDestination } from "./loginDestination";
 
 export function LoginPage() {
   const nav = useNavigate();
@@ -22,11 +23,8 @@ export function LoginPage() {
 
   useEffect(() => {
     if (state.status === "authenticated") {
-      const next = searchParams.get("next");
-      const destination = next?.startsWith("/") && !next.startsWith("//")
-        ? next
-        : me?.has_profile ? ROUTES.dashboard : ROUTES.onboarding(0);
-      nav(destination, { replace: true });
+      const pathname = loginDestination(searchParams.get("next"), me?.has_profile);
+      nav({ pathname }, { replace: true });
     }
   }, [state.status, me?.has_profile, nav, searchParams]);
 
