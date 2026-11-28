@@ -42,7 +42,8 @@ export function App() {
   const publicRoute = ["/", "/login", "/register", "/offline", "/404"].includes(location.pathname)
     || location.pathname.startsWith("/opportunity/");
   if (!me && !publicRoute) {
-    return <Navigate to={`/login?next=${encodeURIComponent(location.pathname)}`} replace />;
+    const next = `${location.pathname}${location.search}${location.hash}`;
+    return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />;
   }
   const requiresProfile = [
     "/app", "/results", "/history", "/profile", "/profile/edit", "/profile/favorites",

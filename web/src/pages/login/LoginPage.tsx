@@ -23,8 +23,8 @@ export function LoginPage() {
 
   useEffect(() => {
     if (state.status === "authenticated") {
-      const pathname = loginDestination(searchParams.get("next"), me?.has_profile);
-      nav({ pathname }, { replace: true });
+      const destination = loginDestination(searchParams.get("next"), me?.has_profile);
+      nav(destination, { replace: true });
     }
   }, [state.status, me?.has_profile, nav, searchParams]);
 
