@@ -17,7 +17,7 @@ def _shape(spec: dict) -> dict:
         path: {
             method: {
                 "params": sorted(
-                    (p.get("name"), p.get("in")) for p in op.get("parameters", [])
+                    [p.get("name"), p.get("in")] for p in op.get("parameters", [])
                 ),
                 "responses": sorted(op.get("responses", {}).keys()),
             }

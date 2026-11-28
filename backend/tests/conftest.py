@@ -42,9 +42,8 @@ def pytest_collection_modifyitems(items):
 
 # --- 3. DSN для psycopg-фикстур ----------------------------------------------
 def _psycopg_dsn() -> str:
-    return os.environ["AIESEC_DATABASE_URL"].replace(
-        "postgresql+asyncpg://", "postgresql://", 1
-    )
+    dsn = os.environ.get("TEST_PARSER_DATABASE_URL", os.environ["AIESEC_DATABASE_URL"])
+    return dsn.replace("postgresql+asyncpg://", "postgresql://", 1)
 
 
 def _connect_psycopg():
